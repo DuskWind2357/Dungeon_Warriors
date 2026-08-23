@@ -1,0 +1,38 @@
+现在继续为我更新背包中的物品图标：
+
+面包："C:\Users\Dusk_Wind\Desktop\Dungeon Warriors\icon\Items\Consumables\ItemSprite_bread.webp"
+力量药水："C:\Users\Dusk_Wind\Desktop\Dungeon Warriors\icon\Items\Consumables\160px-Sweet_Brew.webp"
+迅捷药水："C:\Users\Dusk_Wind\Desktop\Dungeon Warriors\icon\Items\Consumables\160px-Swiftness_Potion.webp"
+生命药水："C:\Users\Dusk_Wind\Desktop\Dungeon Warriors\icon\Items\Consumables\160px-Strength_Potion_Dungeons.webp"
+隐身药水："C:\Users\Dusk_Wind\Desktop\Dungeon Warriors\icon\Items\Consumables\160px-Shadow_Brew.webp"
+
+铁斧："C:\Users\Dusk_Wind\Desktop\Dungeon Warriors\icon\Items\Weapon\斧\ItemSprite_axe.webp"
+铜斧："C:\Users\Dusk_Wind\Desktop\Dungeon Warriors\icon\Items\Weapon\斧\ItemSprite_copper-axe.webp"
+钻石斧："C:\Users\Dusk_Wind\Desktop\Dungeon Warriors\icon\Items\Weapon\斧\ItemSprite_diamond-axe.webp"
+金斧："C:\Users\Dusk_Wind\Desktop\Dungeon Warriors\icon\Items\Weapon\斧\ItemSprite_golden-axe.webp"
+下界合金斧："C:\Users\Dusk_Wind\Desktop\Dungeon Warriors\icon\Items\Weapon\斧\ItemSprite_netherite-axe.webp"
+
+铁剑："C:\Users\Dusk_Wind\Desktop\Dungeon Warriors\icon\Items\Weapon\剑\ItemSprite_iron-sword.webp"
+铜剑："C:\Users\Dusk_Wind\Desktop\Dungeon Warriors\icon\Items\Weapon\剑\ItemSprite_copper-sword.webp"
+钻石剑："C:\Users\Dusk_Wind\Desktop\Dungeon Warriors\icon\Items\Weapon\剑\ItemSprite_diamond-sword.webp"
+金剑："C:\Users\Dusk_Wind\Desktop\Dungeon Warriors\icon\Items\Weapon\剑\ItemSprite_golden-sword.webp"
+下界合金剑："C:\Users\Dusk_Wind\Desktop\Dungeon Warriors\icon\Items\Weapon\剑\ItemSprite_netherite-sword.webp"
+
+铁矛："C:\Users\Dusk_Wind\Desktop\Dungeon Warriors\icon\Items\Weapon\矛\ItemSprite_iron-spear.webp"
+铜矛："C:\Users\Dusk_Wind\Desktop\Dungeon Warriors\icon\Items\Weapon\矛\ItemSprite_copper-spear.webp"
+钻石矛："C:\Users\Dusk_Wind\Desktop\Dungeon Warriors\icon\Items\Weapon\矛\ItemSprite_diamond-spear.webp"
+金矛："C:\Users\Dusk_Wind\Desktop\Dungeon Warriors\icon\Items\Weapon\矛\ItemSprite_golden-spear.webp"
+下界合金矛："C:\Users\Dusk_Wind\Desktop\Dungeon Warriors\icon\Items\Weapon\矛\ItemSprite_netherite-spear.webp"
+
+战袍（1-5级）："C:\Users\Dusk_Wind\Desktop\Dungeon Warriors\icon\Items\Armor\160px-Battle_Robe_(MCD).webp"
+猎人之甲（1-5级）："C:\Users\Dusk_Wind\Desktop\Dungeon Warriors\icon\Items\Armor\160px-Hunter's_Armor_(MCD).webp"
+弓箭手之甲（1-5级）："C:\Users\Dusk_Wind\Desktop\Dungeon Warriors\icon\Items\Armor\160px-Archer's_Armor_(MCD).webp"
+冷酷战甲：（1-5级）："C:\Users\Dusk_Wind\Desktop\Dungeon Warriors\icon\Items\Armor\160px-Grim_Armor_(MCD).webp"
+
+
+幻影长袍："C:\Users\Dusk_Wind\Desktop\Dungeon Warriors\icon\Items\Armor\160px-Splendid_Robe_(MCD).webp"
+凋零之甲："C:\Users\Dusk_Wind\Desktop\Dungeon Warriors\icon\Items\Armor\Wither_Armor_(MCD).png"
+守卫者之甲："C:\Users\Dusk_Wind\Desktop\Dungeon Warriors\icon\Items\Armor\160px-Gilded_Glory_(MCD).webp"
+高地战甲："C:\Users\Dusk_Wind\Desktop\Dungeon Warriors\icon\Items\Armor\160px-Highland_Armor_(MCD).webp"
+
+

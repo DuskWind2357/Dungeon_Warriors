@@ -1,0 +1,8 @@
+对音效系统做出以下修改：
+新增玩家音效体系-"C:\Users\Dusk_Wind\Desktop\Dungeon Warriors\sounds\玩家"
+当玩家受到直接攻击时，随机播放"C:\Users\Dusk_Wind\Desktop\Dungeon Warriors\sounds\玩家\受击"中一种；
+当玩家被火球击中，每秒播放一次"C:\Users\Dusk_Wind\Desktop\Dungeon Warriors\sounds\玩家\燃烧buff"（随机播放其中一种）；
+当玩家死亡时，播放"C:\Users\Dusk_Wind\Desktop\Dungeon Warriors\sounds\玩家\死亡.mp3"；
+当玩家完成一个楼层的战斗，传送门出现时播放"C:\Users\Dusk_Wind\Desktop\Dungeon Warriors\sounds\玩家\通关.ogg"；
+
+新增彩蛋：当杀戮之弩触发斩杀时，播放"C:\Users\Dusk_Wind\Desktop\Dungeon Warriors\sounds\玩家\杀戮之弩彩蛋音效.mp3"。

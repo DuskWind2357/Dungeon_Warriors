@@ -1,0 +1,16 @@
+现在为我更新背包中的物品图标：
+
+匕首（1-5级）："C:\Users\Dusk_Wind\Desktop\Dungeon Warriors\icon\Items\Weapon\100px-Daggers_(MCD).webp"
+弓（1-5级）："C:\Users\Dusk_Wind\Desktop\Dungeon Warriors\icon\Items\Weapon\ItemSprite_bow.webp"
+弩："C:\Users\Dusk_Wind\Desktop\Dungeon Warriors\icon\Items\Weapon\ItemSprite_crossbow.webp"
+精英之弓："C:\Users\Dusk_Wind\Desktop\Dungeon Warriors\icon\Items\Weapon\DungeonsItemSprite_elite-power-bow.webp"
+幻术师之弓："C:\Users\Dusk_Wind\Desktop\Dungeon Warriors\icon\Items\Weapon\DungeonsItemSprite_call-of-the-void.webp"
+机械弩："C:\Users\Dusk_Wind\Desktop\Dungeon Warriors\icon\Items\Weapon\DungeonsItemSprite_auto-crossbow.webp"
+杀戮之弩："C:\Users\Dusk_Wind\Desktop\Dungeon Warriors\icon\Items\Weapon\DungeonsItemSprite_slayer-crossbow.webp"
+机械链锯："C:\Users\Dusk_Wind\Desktop\Dungeon Warriors\icon\Items\Weapon\DungeonsItemSprite_mechanized-sawblade.webp"
+三叉戟："C:\Users\Dusk_Wind\Desktop\Dungeon Warriors\icon\Items\Weapon\ItemSprite_trident.webp"
+
+
+当物品呈现掉落状态时：1-5级武器/护甲为灰白色；面包为棕色；所有药水为紫色；特殊武器/护甲为金色；
+
+杀戮之弩音效修改：触发必杀时，音效修改为从"C:\Users\Dusk_Wind\Desktop\Dungeon Warriors\sounds\玩家\杀"中随机抽取一个播放

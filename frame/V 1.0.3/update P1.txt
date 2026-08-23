@@ -1,0 +1,32 @@
+V 1.0.3 更新方案
+
+美术设计更新：
+
+游戏图标："C:\Users\Dusk_Wind\Desktop\Dungeon Warriors\icon\CreeperFace.webp"
+
+怪物图标：
+
+蜘蛛："C:\Users\Dusk_Wind\Desktop\Dungeon Warriors\icon\SpiderFace.png"
+僵尸："C:\Users\Dusk_Wind\Desktop\Dungeon Warriors\icon\ZombieFace.webp"
+骷髅："C:\Users\Dusk_Wind\Desktop\Dungeon Warriors\icon\SkeletonFace.png"
+蝙蝠："C:\Users\Dusk_Wind\Desktop\Dungeon Warriors\icon\BatFace.webp"
+史莱姆（所有）："C:\Users\Dusk_Wind\Desktop\Dungeon Warriors\icon\SlimeFace.webp"
+岩浆史莱姆（所有）："C:\Users\Dusk_Wind\Desktop\Dungeon Warriors\icon\MagmaCubeFace.png"
+
+精英骷髅："C:\Users\Dusk_Wind\Desktop\Dungeon Warriors\icon\SkeletonVanguardFace.webp"
+精英僵尸："C:\Users\Dusk_Wind\Desktop\Dungeon Warriors\icon\HuskFace.webp"
+烈焰使者："C:\Users\Dusk_Wind\Desktop\Dungeon Warriors\icon\BlazeFace.png"
+暗影骑士："C:\Users\Dusk_Wind\Desktop\Dungeon Warriors\icon\WitherSkeletonFace.png"
+
+暗黑骑士："C:\Users\Dusk_Wind\Desktop\Dungeon Warriors\icon\WitherFace.png"
+炎魔："C:\Users\Dusk_Wind\Desktop\Dungeon Warriors\icon\WildfireFace.webp"
+掠夺者突袭队长："C:\Users\Dusk_Wind\Desktop\Dungeon Warriors\icon\EnchanterFace.webp"
+卫道士突袭队长："C:\Users\Dusk_Wind\Desktop\Dungeon Warriors\icon\RoyalGuardFace.webp"
+
+高塔之主：
+第一阶段："C:\Users\Dusk_Wind\Desktop\Dungeon Warriors\icon\TowerWraithFace.webp"
+第二阶段："C:\Users\Dusk_Wind\Desktop\Dungeon Warriors\icon\NamelessOneFace.webp"
+第三阶段："C:\Users\Dusk_Wind\Desktop\Dungeon Warriors\icon\NecromancerFace.webp"
+
+把游戏主菜单界面的“-30层高塔·肉鸽地牢-”更改为“-每层新局，鏖战高塔-”，字体及大小不变；
+
