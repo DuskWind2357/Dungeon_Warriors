@@ -1,167 +1,83 @@
 {
   "version": 2,
-  "current_floor": 11,
-  "monsters_killed": 5,
+  "current_floor": 4,
+  "monsters_killed": 0,
   "scene_state": "reward",
   "revive": {
     "revive_count": 3
   },
   "player": {
-    "current_hp": 83,
-    "boss_kills": 2,
+    "current_hp": 41,
+    "boss_kills": 0,
+    "elite_kills": 4,
+    "_burn_dmg": 0,
     "buffs": {},
-    "melee_weapon": "机械链锯",
-    "ranged_weapon": "弩（改进）",
-    "armor": "窃贼之甲 (T3)"
+    "status_effects": {},
+    "melee_weapon": "铁矛",
+    "ranged_weapon": "弩（普通）",
+    "armor": "战袍 (T1)"
   },
   "backpack": [
     {
       "type": "consumable",
-      "name": "面包"
-    },
-    {
-      "type": "consumable",
-      "name": "面包"
-    },
-    {
-      "type": "consumable",
-      "name": "面包"
-    },
-    {
-      "type": "consumable",
-      "name": "面包"
-    },
-    {
-      "type": "consumable",
-      "name": "面包"
-    },
-    {
-      "type": "consumable",
-      "name": "面包"
-    },
-    {
-      "type": "consumable",
-      "name": "面包"
-    },
-    {
-      "type": "consumable",
-      "name": "面包"
-    },
-    {
-      "type": "consumable",
-      "name": "面包"
-    },
-    {
-      "type": "consumable",
-      "name": "面包"
-    },
-    {
-      "type": "consumable",
-      "name": "面包"
-    },
-    {
-      "type": "consumable",
-      "name": "面包"
-    },
-    {
-      "type": "consumable",
-      "name": "面包"
-    },
-    {
-      "type": "consumable",
-      "name": "面包"
-    },
-    {
-      "type": "consumable",
-      "name": "面包"
-    },
-    {
-      "type": "consumable",
-      "name": "面包"
-    },
-    {
-      "type": "consumable",
-      "name": "生命药水"
-    },
-    {
-      "type": "consumable",
-      "name": "生命药水"
-    },
-    {
-      "type": "consumable",
       "name": "隐身药水"
-    },
-    {
-      "type": "consumable",
-      "name": "隐身药水"
-    },
-    {
-      "type": "consumable",
-      "name": "迅捷药水"
-    },
-    {
-      "type": "consumable",
-      "name": "迅捷药水"
-    },
-    {
-      "type": "consumable",
-      "name": "迅捷药水"
-    },
-    null,
-    {
-      "type": "weapon",
-      "name": "弩（普通）"
-    },
-    null,
-    null,
-    null,
-    null,
-    null,
-    null,
-    null,
-    {
-      "type": "armor",
-      "name": "战袍 (T3)"
-    },
-    {
-      "type": "armor",
-      "name": "窃贼之甲 (T1)"
-    },
-    {
-      "type": "armor",
-      "name": "猎人之甲 (T2)"
-    },
-    {
-      "type": "weapon",
-      "name": "弩（精制）"
-    },
-    {
-      "type": "weapon",
-      "name": "三叉戟"
-    },
-    null,
-    null,
-    null,
-    {
-      "type": "weapon",
-      "name": "金矛"
-    },
-    {
-      "type": "weapon",
-      "name": "钻石矛"
-    },
-    {
-      "type": "weapon",
-      "name": "下界合金矛"
     },
     {
       "type": "weapon",
       "name": "铜剑"
     },
     {
-      "type": "weapon",
-      "name": "铁匕首"
+      "type": "consumable",
+      "name": "隐身药水"
     },
+    null,
+    null,
+    null,
+    null,
+    null,
+    {
+      "type": "consumable",
+      "name": "迅捷药水"
+    },
+    {
+      "type": "consumable",
+      "name": "面包"
+    },
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
     null,
     null,
     null,
