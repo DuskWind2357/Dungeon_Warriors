@@ -74,11 +74,13 @@ def _load_icon(filename: str, size: int) -> pygame.Surface | None:
 
 # 地图贴图路径映射
 _MAP_TEXTURE_PATHS = {
-    "wall":       "icon/block/墙壁.png",
-    "wall_var":   "icon/block/墙壁变种.webp",
-    "floor":      "icon/block/地砖.png",
-    "floor_var":  "icon/block/地砖变种.png",
-    "spawn":      "icon/block/出生点.webp",
+    "wall":           "icon/block/墙壁.png",
+    "wall_var":       "icon/block/墙壁变种.webp",
+    "floor":          "icon/block/地砖.png",
+    "floor_var":      "icon/block/地砖变种.png",
+    "spawn":          "icon/block/出生点.webp",
+    "boss_wall":      "icon/block/BOSS楼层墙壁.png",
+    "boss_floor":     "icon/block/BOSS楼层地砖.webp",
 }
 
 
@@ -117,7 +119,8 @@ def draw_map(screen: pygame.Surface, grid: list[list[int]],
              spawn_pos: tuple[int, int],
              portal_pos: tuple[int, int],
              portal_active: bool,
-             in_spawn_zone: bool) -> None:
+             in_spawn_zone: bool,
+             floor_type: str = "battle") -> None:
     """绘制地图网格（贴图版本）"""
     _load_map_textures()
     sc, sr = spawn_pos
@@ -137,22 +140,28 @@ def draw_map(screen: pygame.Surface, grid: list[list[int]],
                 continue
 
             if grid[row][col] == 1:
-                # 墙壁：10% 概率使用变种贴图（固定种子，避免闪烁）
-                seed = row * 1000 + col
-                rng = random.Random(seed)
-                is_variant = rng.random() < 0.1
-                key = "wall_var" if is_variant else "wall"
+                # 墙壁：BOSS层使用专用贴图，其他层10%概率变种
+                if floor_type in ("boss", "final_boss"):
+                    key = "boss_wall"
+                else:
+                    seed = row * 1000 + col
+                    rng = random.Random(seed)
+                    is_variant = rng.random() < 0.1
+                    key = "wall_var" if is_variant else "wall"
                 tex = _map_textures.get(key)
                 if tex:
                     screen.blit(tex, (x, y))
                 else:
                     pygame.draw.rect(screen, COLOR_WALL, (x, y, TILE_SIZE, TILE_SIZE))
             else:
-                # 地板：10% 概率使用变种贴图（固定种子，避免闪烁）
-                seed = row * 1000 + col + 50000
-                rng = random.Random(seed)
-                is_variant = rng.random() < 0.1
-                key = "floor_var" if is_variant else "floor"
+                # 地板：BOSS层使用专用贴图，其他层10%概率变种
+                if floor_type in ("boss", "final_boss"):
+                    key = "boss_floor"
+                else:
+                    seed = row * 1000 + col + 50000
+                    rng = random.Random(seed)
+                    is_variant = rng.random() < 0.1
+                    key = "floor_var" if is_variant else "floor"
                 tex = _map_textures.get(key)
                 if tex:
                     screen.blit(tex, (x, y))

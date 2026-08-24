@@ -916,7 +916,7 @@ class CombatScene:
     def draw(self, screen: pygame.Surface) -> None:
         screen.fill(COLOR_BG)
         draw_map(screen, self.grid, self.spawn_pos, self.portal_pos,
-                 self.portal_active, self.in_spawn_zone)
+                 self.portal_active, self.in_spawn_zone, self.floor_type)
         draw_drops(screen, self.drops)
         for monster in self.monsters:
             if monster.is_alive():
