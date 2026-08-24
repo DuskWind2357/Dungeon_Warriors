@@ -7,23 +7,8 @@ import sys
 import os
 import random
 import traceback
-import pygame
-# debug_log inline
 import datetime
-def setup_debug_log():
-    log_dir = os.path.dirname(os.path.abspath(__file__))
-    if getattr(sys, 'frozen', False):
-        log_dir = os.path.dirname(sys.executable)
-    log_path = os.path.join(log_dir, 'debug.log')
-    try:
-        log_file = open(log_path, 'w', encoding='utf-8', buffering=1)
-        sys.stdout = log_file
-        sys.stderr = log_file
-        print(f'[{datetime.datetime.now()}] Debug log started (frozen={getattr(sys, "frozen", False)})')
-        return True
-    except Exception as e:
-        print(f'Log setup failed: {e}')
-        return False
+import pygame
 from config import (
     WINDOW_WIDTH, WINDOW_HEIGHT, FPS, COLOR_BG,
     MAX_REVIVES, REVIVE_COUNTDOWN_SEC, GAME_OVER_DELAY_SEC,
@@ -119,6 +104,7 @@ class Game:
 
     def _continue_game(self) -> None:
         """继续游戏（加载存档）"""
+        from data.weapons import WEAPON_BY_NAME
         data = load_game()
         if data:
             self.player = data["player"]
@@ -385,6 +371,23 @@ class Game:
             if self.combat_scene:
                 self.combat_scene.draw(screen)
             self.game_over_scene.draw(screen)
+
+
+def setup_debug_log():
+    """将 stdout/stderr 重定向到日志文件"""
+    log_dir = os.path.dirname(os.path.abspath(__file__))
+    if getattr(sys, 'frozen', False):
+        log_dir = os.path.dirname(sys.executable)
+    log_path = os.path.join(log_dir, 'debug.log')
+    try:
+        log_file = open(log_path, 'w', encoding='utf-8', buffering=1)
+        sys.stdout = log_file
+        sys.stderr = log_file
+        print(f'[{datetime.datetime.now()}] Debug log started (frozen={getattr(sys, "frozen", False)})')
+        return True
+    except Exception as e:
+        print(f'Log setup failed: {e}')
+        return False
 
 
 def main():

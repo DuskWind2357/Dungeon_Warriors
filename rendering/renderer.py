@@ -5,6 +5,7 @@ Dungeon Warriors — 渲染器
 
 import math
 import os
+import random
 import pygame
 from config import (
     TILE_SIZE, MAP_COLS, MAP_ROWS,
@@ -14,8 +15,9 @@ from config import (
     COLOR_HP_BAR, COLOR_HP_BAR_BG,
     COLOR_MONSTER_NORMAL, COLOR_MONSTER_ELITE,
     COLOR_MONSTER_BOSS, COLOR_MONSTER_FINAL_BOSS,
-    COLOR_TEXT, COLOR_TEXT_DIM,
+    COLOR_TEXT, COLOR_TEXT_DIM, COLOR_HUD,
     COLOR_DROP_HEAL, COLOR_DROP_POWER,
+    COLOR_BUFF_ACTIVE, COLOR_INVIS, COLOR_SWIFT,
 )
 from entities.player import Player
 from entities.monster import Monster
@@ -25,6 +27,12 @@ from utils import resource_path
 
 # 怪物图标缓存
 _monster_icons: dict[str, pygame.Surface] = {}
+
+# 地图贴图缓存
+_map_textures: dict[str, pygame.Surface] = {}
+
+# 粗体字体缓存（仅战斗界面使用）
+_bold_font_cache: dict[int, pygame.font.Font] = {}
 
 # 怪物 → 图标文件映射
 MONSTER_ICON_MAP: dict[str, str] = {
@@ -63,6 +71,32 @@ def _load_icon(filename: str, size: int) -> pygame.Surface | None:
         pass
     return None
 
+
+# 地图贴图路径映射
+_MAP_TEXTURE_PATHS = {
+    "wall":       "icon/block/墙壁.png",
+    "wall_var":   "icon/block/墙壁变种.webp",
+    "floor":      "icon/block/地砖.png",
+    "floor_var":  "icon/block/地砖变种.png",
+    "spawn":      "icon/block/出生点.webp",
+}
+
+
+def _load_map_textures() -> None:
+    """预加载地图贴图并缩放至 TILE_SIZE"""
+    if _map_textures:
+        return
+    for key, path in _MAP_TEXTURE_PATHS.items():
+        full = resource_path(path)
+        if os.path.exists(full):
+            try:
+                img = pygame.image.load(full).convert_alpha()
+                _map_textures[key] = pygame.transform.scale(img, (TILE_SIZE, TILE_SIZE))
+            except Exception:
+                _map_textures[key] = None
+        else:
+            _map_textures[key] = None
+
 def _get_monster_icon(monster, size: int) -> pygame.Surface | None:
     """获取怪物图标（含BOSS阶段判定）"""
     key = None
@@ -84,23 +118,46 @@ def draw_map(screen: pygame.Surface, grid: list[list[int]],
              portal_pos: tuple[int, int],
              portal_active: bool,
              in_spawn_zone: bool) -> None:
-    """绘制地图网格"""
+    """绘制地图网格（贴图版本）"""
+    _load_map_textures()
+    sc, sr = spawn_pos
+
     for row in range(len(grid)):
         for col in range(len(grid[row])):
             x = col * TILE_SIZE
             y = row * TILE_SIZE
 
+            # 出生点方格使用独立图片，不参与变种
+            if (col, row) == (sc, sr):
+                tex = _map_textures.get("spawn")
+                if tex:
+                    screen.blit(tex, (x, y))
+                else:
+                    pygame.draw.rect(screen, COLOR_SPAWN[:3], (x, y, TILE_SIZE, TILE_SIZE))
+                continue
+
             if grid[row][col] == 1:
-                # 墙壁 — 深色方块 + 砖线
-                pygame.draw.rect(screen, COLOR_WALL, (x, y, TILE_SIZE, TILE_SIZE))
-                # 砖线效果
-                pygame.draw.rect(screen, (40, 40, 50),
-                                 (x, y, TILE_SIZE, TILE_SIZE), width=1)
+                # 墙壁：10% 概率使用变种贴图（固定种子，避免闪烁）
+                seed = row * 1000 + col
+                rng = random.Random(seed)
+                is_variant = rng.random() < 0.1
+                key = "wall_var" if is_variant else "wall"
+                tex = _map_textures.get(key)
+                if tex:
+                    screen.blit(tex, (x, y))
+                else:
+                    pygame.draw.rect(screen, COLOR_WALL, (x, y, TILE_SIZE, TILE_SIZE))
             else:
-                # 地板 — 更深的背景
-                pygame.draw.rect(screen, COLOR_FLOOR, (x, y, TILE_SIZE, TILE_SIZE))
-                pygame.draw.rect(screen, (25, 25, 35),
-                                 (x, y, TILE_SIZE, TILE_SIZE), width=1)
+                # 地板：10% 概率使用变种贴图（固定种子，避免闪烁）
+                seed = row * 1000 + col + 50000
+                rng = random.Random(seed)
+                is_variant = rng.random() < 0.1
+                key = "floor_var" if is_variant else "floor"
+                tex = _map_textures.get(key)
+                if tex:
+                    screen.blit(tex, (x, y))
+                else:
+                    pygame.draw.rect(screen, COLOR_FLOOR, (x, y, TILE_SIZE, TILE_SIZE))
 
     # 绘制出生点区域
     if in_spawn_zone:
@@ -224,10 +281,10 @@ def _draw_monster_impl(screen: pygame.Surface, monster: Monster) -> None:
     draw_progress_bar(screen, bar_x, bar_y, bar_width, bar_height,
                       monster.hp_ratio, COLOR_HP_BAR)
 
-    # 怪物名称
+    # 怪物名称（深灰色，不加粗）
     font_small = _get_small_font()
     if font_small:
-        name_surf = font_small.render(monster.name, True, COLOR_TEXT_DIM)
+        name_surf = font_small.render(monster.name, True, COLOR_HUD)
         name_rect = name_surf.get_rect(center=(x, y + half + 12))
         screen.blit(name_surf, name_rect)
 
@@ -272,47 +329,42 @@ def draw_drops(screen: pygame.Surface,
 def draw_hud(screen: pygame.Surface, player: Player,
              current_floor: int, revive_count: int,
              font: pygame.font.Font | None = None) -> None:
-    """绘制 HUD v2.0（HP成长、Buff计时器、装备信息）"""
+    """绘制 HUD v2.1（HP成长、Buff计时器、装备信息）"""
     if font is None:
         font = _get_default_font()
 
     max_hp = player.total_max_hp(current_floor)
 
-    # 左上：HP + 楼层 + 复活
+    # 第一行：生命值 + 楼层 + 复活（并排显示，深灰色）
     hp_text = f"HP: {player.current_hp}/{max_hp}"
     floor_text = f"Floor: {current_floor}/30"
     revive_text = f"Revives: {revive_count}"
+    first_line = f"{hp_text}   {floor_text}   {revive_text}"
 
     y_offset = 10
-    for text, color in [
-        (hp_text, COLOR_TEXT),
-        (floor_text, COLOR_TEXT_DIM),
-        (revive_text, COLOR_TEXT),
-    ]:
-        surf = font.render(text, True, color)
-        screen.blit(surf, (10, y_offset))
-        y_offset += 22
+    surf = font.render(first_line, True, COLOR_HUD)
+    screen.blit(surf, (10, y_offset))
+    y_offset += 22
 
     # HP 条
     bar_width = 150
     draw_progress_bar(screen, 10, y_offset + 2, bar_width, 10,
                       player.current_hp / max_hp, COLOR_HP_BAR)
 
-    # 装备（左下方）
+    # 装备（左下方，深灰色）
     equip_y = y_offset + 18
     mw = player.melee_weapon
     rw = player.ranged_weapon
-    weapon_text = f"M: {mw.name} (+{mw.attack_bonus})" if mw else "M: 无"
-    ranged_text = f"R: {rw.name} (+{rw.attack_bonus})" if rw else "R: 无"
-    armor_text = f"A: {player.armor.name}" if player.armor else "A: 无"
+    weapon_text = f"M: {mw.name} (+{mw.attack_bonus})" if mw else "M: None"
+    ranged_text = f"R: {rw.name} (+{rw.attack_bonus})" if rw else "R: None"
+    armor_text = f"A: {player.armor.name}" if player.armor else "A: None"
     for text in [weapon_text, ranged_text, armor_text]:
-        surf = font.render(text, True, COLOR_TEXT_DIM)
+        surf = font.render(text, True, COLOR_HUD)
         screen.blit(surf, (10, equip_y))
         equip_y += 18
 
     # 右上：活跃 Buff 列表
     buff_y = 10
-    from config import COLOR_BUFF_ACTIVE, COLOR_INVIS, COLOR_SWIFT, COLOR_DROP_POWER
     buff_colors = {
         "strength": COLOR_DROP_POWER,
         "invisible": COLOR_INVIS,
@@ -383,7 +435,12 @@ def _get_small_font() -> pygame.font.Font | None:
 
 
 def _get_font(size: int) -> pygame.font.Font:
-    """获取字体（带缓存）"""
+    """获取字体（带缓存，内部使用）"""
+    return get_font(size)
+
+
+def get_font(size: int) -> pygame.font.Font:
+    """获取字体（带缓存，公开接口）"""
     if size in _font_cache:
         return _font_cache[size]
 
@@ -403,6 +460,43 @@ def _get_font(size: int) -> pygame.font.Font:
     font = pygame.font.Font(None, size)
     _font_cache[size] = font
     return font
+
+
+def get_bold_font(size: int) -> pygame.font.Font:
+    """获取粗体字体（带缓存，仅战斗界面使用）"""
+    if size in _bold_font_cache:
+        return _bold_font_cache[size]
+
+    from utils import resource_path
+    font_paths = [
+        resource_path("font.ttf"),
+        resource_path("font.otf"),
+    ]
+
+    for path in font_paths:
+        if os.path.exists(path):
+            font = pygame.font.Font(path, size)
+            font.set_bold(True)
+            _bold_font_cache[size] = font
+            return font
+
+    font = pygame.font.Font(None, size)
+    font.set_bold(True)
+    _bold_font_cache[size] = font
+    return font
+
+
+def get_bold_small_font() -> pygame.font.Font | None:
+    """获取粗体小字体（怪物名称等）"""
+    try:
+        return get_bold_font(12)
+    except Exception:
+        return None
+
+
+def get_bold_hud_font() -> pygame.font.Font:
+    """获取粗体HUD字体（战斗界面专用）"""
+    return get_bold_font(18)
 
 
 def get_title_font() -> pygame.font.Font:

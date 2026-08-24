@@ -8,7 +8,7 @@ import random
 import pygame
 from config import (
     TILE_SIZE, MAP_COLS, MAP_ROWS, FPS, SPAWN_DELAY_SEC,
-    PLAYER_BASE_SPEED, PLAYER_DEFAULT_WEAPON, PLAYER_DEFAULT_ARMOR,
+    PLAYER_BASE_SPEED,
     PROJECTILE_SPEED, PROJECTILE_RANGE, PROJECTILE_SIZE,
     MONSTER_DETECT_RANGE, MONSTER_SPEED,
     MONSTER_FINAL_BOSS_SUMMON_INTERVAL, MONSTER_FINAL_BOSS_SUMMON_CHANCE,
@@ -25,7 +25,7 @@ from systems.combat import (
     player_melee_attack, player_ranged_attack,
     projectile_hit_monster, move_toward, is_in_range, monster_attack_player,
 )
-from systems.inventory import add_item, is_backpack_full
+from systems.inventory import add_item
 from systems.floor_manager import generate_map, find_spawn_point, spawn_monsters, get_floor_type
 from systems.pathfinding import astar, simplify_path, pixel_to_grid, grid_to_pixel, random_walkable
 from systems.save_system import save_game
@@ -33,12 +33,12 @@ from systems.revive_system import ReviveSystem
 from systems.audio_manager import AudioManager
 from rendering.renderer import (
     draw_map, draw_player, draw_monster, draw_drops, draw_hud, draw_toast,
-    get_hud_font,
+    get_bold_hud_font,
 )
 from rendering.pixel_style import make_toast
 from data.weapons import WEAPON_BY_NAME, WEAPON_BY_TYPE_TIER
-from data.armor import ARMOR_BY_NAME, ARMOR_BY_TIER
-from data.consumables import BREAD, HEALTH_POTION, STRENGTH_POTION, INVIS_POTION, SWIFT_POTION, POTION_POOL
+from data.armor import ARMOR_BY_TIER
+from data.consumables import BREAD, POTION_POOL
 
 
 class CombatScene:
@@ -662,29 +662,6 @@ class CombatScene:
             # 无路径（A* 失败）：强制下次重试
             monster._recalc = 0
 
-    def _follow_path(self, monster: Monster, speed: int) -> None:
-        """沿 A* 路径移动。路径由 _path 缓存，到达节点则前进。"""
-        path = getattr(monster, '_path', None)
-        if not path: return
-        # 目标像素坐标
-        tx, ty = grid_to_pixel(path[0][0], path[0][1])
-        dx, dy = tx - monster.x, ty - monster.y
-        dist = math.sqrt(dx*dx + dy*dy)
-        if dist < speed + 2:  # 到达当前节点
-            monster.x, monster.y = tx, ty
-            path.pop(0)
-            if not path:  # 路径完成
-                monster._path = None
-                return
-            tx, ty = grid_to_pixel(path[0][0], path[0][1])
-            dx, dy = tx - monster.x, ty - monster.y
-            dist = math.sqrt(dx*dx + dy*dy)
-        if dist > 0:
-            nx = monster.x + (dx/dist) * speed
-            ny = monster.y + (dy/dist) * speed
-            if not self._collides_wall(nx, monster.y): monster.x = nx
-            if not self._collides_wall(monster.x, ny): monster.y = ny
-
     def _boss_summon(self, boss: Monster) -> None:
         r_summon = random.random()
         if r_summon < 0.5: summon_specs = [("elite", 1)]
@@ -947,23 +924,23 @@ class CombatScene:
         self._draw_projectiles(screen)
         draw_player(screen, self.player)
         draw_hud(screen, self.player, self.current_floor,
-                 self.revive_system.revives_remaining, get_hud_font())
+                 self.revive_system.revives_remaining, get_bold_hud_font())
         # 倒计时 toast
         offset = 0
         if self._spawn_toast:
-            draw_toast(screen, self._spawn_toast, get_hud_font(), offset=0)
+            draw_toast(screen, self._spawn_toast, get_bold_hud_font(), offset=0)
             offset = 1
         # 传送门倒计时（绿色）
         if self._portal_countdown:
-            draw_toast(screen, self._portal_countdown, get_hud_font(), offset=offset, color=(100, 220, 100))
+            draw_toast(screen, self._portal_countdown, get_bold_hud_font(), offset=offset, color=(100, 220, 100))
             offset += 1
         # 传送门背包警告（黄色）
         if self._portal_toast:
-            draw_toast(screen, self._portal_toast, get_hud_font(), offset=offset, color=(255, 220, 60))
+            draw_toast(screen, self._portal_toast, get_bold_hud_font(), offset=offset, color=(255, 220, 60))
             offset += 1
         # 技能 toast
         for i, t in enumerate(self.toasts):
-            draw_toast(screen, t, get_hud_font(), offset=offset + i)
+            draw_toast(screen, t, get_bold_hud_font(), offset=offset + i)
 
     def _draw_projectiles(self, screen: pygame.Surface) -> None:
         import os
@@ -992,7 +969,6 @@ class CombatScene:
                     screen.blit(icon, (px - PROJECTILE_SIZE*3//2, py - PROJECTILE_SIZE*3//2))
                 else:
                     # 箭矢：计算旋转角度（默认向右=0°）
-                    import math
                     angle = math.degrees(math.atan2(proj['vy'], proj['vx']))
                     rotated = pygame.transform.rotate(icon, -angle)
                     rw, rh = rotated.get_size()

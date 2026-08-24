@@ -3,10 +3,10 @@ Dungeon Warriors — 胜利场景
 金色"胜利" + 自动退出倒计时
 """
 
-import os
 import pygame
 from config import WINDOW_WIDTH, WINDOW_HEIGHT, COLOR_VICTORY_TEXT, COLOR_TEXT
 from rendering.pixel_style import draw_overlay
+from rendering.renderer import get_font
 
 EXIT_COUNTDOWN = 5.0  # 5秒后自动退出
 
@@ -33,9 +33,9 @@ class VictoryScene:
 
     def draw(self, screen: pygame.Surface) -> None:
         if self._font_large is None:
-            self._font_large = self._get_font(72)
+            self._font_large = get_font(72)
         if self._font_small is None:
-            self._font_small = self._get_font(24)
+            self._font_small = get_font(24)
 
         cx = WINDOW_WIDTH // 2
         cy = WINDOW_HEIGHT // 2
@@ -58,12 +58,3 @@ class VictoryScene:
         tip = self._font_small.render("按任意键提前退出", True, (180, 180, 180))
         tip_rect = tip.get_rect(center=(cx, cy + 70))
         screen.blit(tip, tip_rect)
-
-    @staticmethod
-    def _get_font(size: int) -> pygame.font.Font:
-        from utils import resource_path
-        for fname in ["font.ttf", "font.otf"]:
-            path = resource_path(fname)
-            if os.path.exists(path):
-                return pygame.font.Font(path, size)
-        return pygame.font.Font(None, size)

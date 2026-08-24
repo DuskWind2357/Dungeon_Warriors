@@ -1,0 +1,7 @@
+更新内容：修改游戏地图美术设计；
+方案：目前版本游戏地图由方格构成，现在使用指定图片为地图方格渲染纹理（改变方格贴图）；
+墙（障碍）："C:\Users\Dusk_Wind\Desktop\Project\Dungeon Warriors\icon\block\墙壁.png"
+地砖（活动区域）："C:\Users\Dusk_Wind\Desktop\Project\Dungeon Warriors\icon\block\地砖.png"
+玩家出生位置："C:\Users\Dusk_Wind\Desktop\Project\Dungeon Warriors\icon\block\出生点.webp"
+
+规则：地图渲染时，每一个方格有10%几率渲染为变种贴图（仅限墙和地砖，不包含出生点方格），地砖变种："C:\Users\Dusk_Wind\Desktop\Project\Dungeon Warriors\icon\block\地砖变种.png"，墙变种："C:\Users\Dusk_Wind\Desktop\Project\Dungeon Warriors\icon\block\墙壁变种.webp"

@@ -3,7 +3,6 @@ Dungeon Warriors V1.0.3 — 护甲定义（百分比HP/DR + 类型加成）
 """
 
 from entities.item import Armor
-import math
 
 ARMOR_TYPES = {
     "战袍":       {"crit": 0.15,  "melee": 0,    "ranged": 0,    "ls": 0,    "spd": 0},

@@ -25,7 +25,7 @@ PLAYER_HP_PER_FLOOR = 5       # 每层 +5 生命上限
 PLAYER_HP_PER_BOSS_KILL = 5   # 每击杀头目 +5 生命上限
 PLAYER_BASE_SPEED = 4         # px/frame
 PLAYER_DEFAULT_WEAPON = "铜剑"  # 初始武器
-PLAYER_DEFAULT_ARMOR = "皮甲"   # 初始护甲
+PLAYER_DEFAULT_ARMOR = "战袍 (T1)"   # 初始护甲
 
 # ============================================================
 # 怪物 (frame.txt)
@@ -164,6 +164,7 @@ COLOR_MONSTER_BOSS = (200, 30, 30)
 COLOR_MONSTER_FINAL_BOSS = (180, 20, 20)
 COLOR_TEXT = (220, 220, 220)
 COLOR_TEXT_DIM = (150, 150, 150)
+COLOR_HUD = (40, 40, 40)
 COLOR_TITLE = (255, 200, 50)
 COLOR_TITLE_SHADOW = (80, 50, 0)
 COLOR_BUTTON = (70, 70, 80)

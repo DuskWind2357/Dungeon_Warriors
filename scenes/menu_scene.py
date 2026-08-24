@@ -5,7 +5,7 @@ Dungeon Warriors — 主菜单场景
 
 import pygame
 from rendering.pixel_style import draw_pixel_text, draw_stone_button
-from rendering.renderer import get_title_font, get_button_font
+from rendering.renderer import get_title_font, get_button_font, get_font
 
 
 # 按钮标签
@@ -114,16 +114,7 @@ class MenuScene:
                                   btn_font, hover=(i == self.hovered_index))
 
         # 作者署名 + 版本号（使用项目字体以支持中文）
-        import os, sys
-        from utils import resource_path
-        small_font = None
-        for fname in ["font.ttf", "font.otf"]:
-            path = resource_path(fname)
-            if os.path.exists(path):
-                small_font = pygame.font.Font(path, 14)
-                break
-        if small_font is None:
-            small_font = pygame.font.Font(None, 16)
+        small_font = get_font(14)
 
         credit = small_font.render(
             "作者：Dusk_Wind  重庆大学大数据与软件学院",

@@ -1,6 +1,6 @@
 """
 Dungeon Warriors v2.0 — 背包系统
-30格（5×6），新消耗品支持（隐身/迅捷/HoT面包）
+64格（8×8），消耗品支持（面包/生命/力量/迅捷/隐身药水）
 """
 
 from entities.item import Weapon, Armor, Consumable, Item

@@ -75,7 +75,7 @@ def player_melee_attack(player: Player, monsters: list[Monster]) -> list[Monster
 
 
 def player_ranged_attack(player: Player,
-                         mouse_x: float, mouse_y: float) -> dict | None:
+                         mouse_x: float, mouse_y: float) -> list[dict] | None:
     """
     玩家远程攻击：返回投射物数据 dict 或 None。
     移动中不能攻击的武器在此检查。

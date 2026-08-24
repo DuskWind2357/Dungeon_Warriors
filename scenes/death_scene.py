@@ -3,7 +3,6 @@ Dungeon Warriors — 死亡场景
 红色 "你死了" + 倒计时
 """
 
-import os
 import pygame
 from config import (
     WINDOW_WIDTH, WINDOW_HEIGHT,
@@ -11,6 +10,7 @@ from config import (
 )
 from systems.revive_system import ReviveSystem
 from rendering.pixel_style import draw_overlay
+from rendering.renderer import get_font
 
 
 class DeathScene:
@@ -37,9 +37,9 @@ class DeathScene:
     def draw(self, screen: pygame.Surface) -> None:
         """绘制死亡画面"""
         if self._font_large is None:
-            self._font_large = self._get_font(72)
+            self._font_large = get_font(72)
         if self._font_small is None:
-            self._font_small = self._get_font(24)
+            self._font_small = get_font(24)
 
         screen_center_x = WINDOW_WIDTH // 2
         screen_center_y = WINDOW_HEIGHT // 2
@@ -65,13 +65,3 @@ class DeathScene:
         revive_surf = self._font_small.render(revive_text, True, COLOR_TEXT)
         revive_rect = revive_surf.get_rect(center=(screen_center_x, screen_center_y + 60))
         screen.blit(revive_surf, revive_rect)
-
-    @staticmethod
-    def _get_font(size: int) -> pygame.font.Font:
-        """获取字体"""
-        from utils import resource_path
-        font_paths = [resource_path("font.ttf"), resource_path("font.otf")]
-        for path in font_paths:
-            if os.path.exists(path):
-                return pygame.font.Font(path, size)
-        return pygame.font.Font(None, size)

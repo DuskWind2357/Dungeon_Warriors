@@ -100,7 +100,10 @@ def _serialize_player(player: Player) -> dict:
     return {
         "current_hp": player.current_hp,
         "boss_kills": player.boss_kills,
+        "elite_kills": player.elite_kills,
+        "_burn_dmg": player._burn_dmg,
         "buffs": dict(player.buffs),
+        "status_effects": dict(player.status_effects),
         "melee_weapon": player.melee_weapon.name if player.melee_weapon else None,
         "ranged_weapon": player.ranged_weapon.name if player.ranged_weapon else None,
         "armor": player.armor.name if player.armor else None,
@@ -112,7 +115,10 @@ def _deserialize_player(data: dict) -> Player:
     player = Player()
     player.current_hp = data.get("current_hp", player.base_hp)
     player.boss_kills = data.get("boss_kills", 0)
+    player.elite_kills = data.get("elite_kills", 0)
+    player._burn_dmg = data.get("_burn_dmg", 7.0)
     player.buffs = data.get("buffs", {})
+    player.status_effects = data.get("status_effects", {})
 
     melee_name = data.get("melee_weapon")
     ranged_name = data.get("ranged_weapon")

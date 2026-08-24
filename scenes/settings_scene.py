@@ -11,6 +11,7 @@ from config import (
     DIFFICULTY_MODIFIERS, DEFAULT_DIFFICULTY,
 )
 from rendering.pixel_style import draw_overlay, draw_pixel_text
+from rendering.renderer import get_font
 
 
 class SettingsScene:
@@ -60,9 +61,9 @@ class SettingsScene:
     def draw(self, screen: pygame.Surface) -> None:
         screen.fill(COLOR_BG)
 
-        font_title = self._get_font(48)
-        font_btn = self._get_font(24)
-        font_hint = self._get_font(18)
+        font_title = get_font(48)
+        font_btn = get_font(24)
+        font_hint = get_font(18)
         cx = WINDOW_WIDTH // 2
 
         draw_pixel_text(screen, "设置", font_title, COLOR_TITLE, cx, 120, shadow=True)
@@ -98,13 +99,3 @@ class SettingsScene:
         # 返回提示
         hint = font_hint.render("ESC 返回主菜单", True, COLOR_TEXT_DIM)
         screen.blit(hint, hint.get_rect(center=(cx, WINDOW_HEIGHT - 40)))
-
-    @staticmethod
-    def _get_font(size: int) -> pygame.font.Font:
-        import os, sys
-        from utils import resource_path
-        for fname in ["font.ttf", "font.otf"]:
-            path = resource_path(fname)
-            if os.path.exists(path):
-                return pygame.font.Font(path, size)
-        return pygame.font.Font(None, size)

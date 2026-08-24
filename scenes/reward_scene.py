@@ -17,7 +17,8 @@ from data.armor import ARMOR_BY_TIER, ARMOR_BY_NAME
 from data.consumables import (
     HEALTH_POTION, STRENGTH_POTION, INVIS_POTION, SWIFT_POTION,
 )
-from rendering.pixel_style import draw_overlay, draw_panel_bg
+from rendering.pixel_style import draw_overlay
+from rendering.renderer import get_font
 
 
 class RewardScene:
@@ -214,14 +215,14 @@ class RewardScene:
         draw_overlay(screen, 190)
 
         # 标题
-        font_large = self._get_font(36)
-        font_btn = self._get_font(20)
+        font_large = get_font(36)
+        font_btn = get_font(20)
         cx = WINDOW_WIDTH // 2
 
         title = font_large.render("选择奖励", True, COLOR_TITLE)
         screen.blit(title, title.get_rect(center=(cx, 120)))
 
-        floor_text = self._get_font(24).render(
+        floor_text = get_font(24).render(
             f"第 {self.current_floor} 层 通关", True, COLOR_TEXT)
         screen.blit(floor_text, floor_text.get_rect(center=(cx, 170)))
 
@@ -230,7 +231,7 @@ class RewardScene:
         empty = count_empty_slots(self.backpack)
         needed = len(self.pending_rewards) if self.selected >= 0 else 1
         if empty < needed:
-            warn = self._get_font(16).render(
+            warn = get_font(16).render(
                 f"⚠ 背包空间不足！(空位:{empty}, 需要:{needed})",
                 True, (255, 100, 100))
             screen.blit(warn, warn.get_rect(center=(cx, 210)))
@@ -266,18 +267,8 @@ class RewardScene:
 
         # 神秘奖励揭晓
         if self.confirmed and self.revealed_text:
-            rev = self._get_font(22).render(f"获得: {self.revealed_text}", True, COLOR_TITLE)
+            rev = get_font(22).render(f"获得: {self.revealed_text}", True, COLOR_TITLE)
             screen.blit(rev, rev.get_rect(center=(cx, WINDOW_HEIGHT - 40)))
         elif self.selected < 0:
-            hint = self._get_font(16).render("点击选择一项奖励", True, (160, 160, 160))
+            hint = get_font(16).render("点击选择一项奖励", True, (160, 160, 160))
             screen.blit(hint, hint.get_rect(center=(cx, WINDOW_HEIGHT - 40)))
-
-    @staticmethod
-    def _get_font(size: int) -> pygame.font.Font:
-        import os, sys
-        from utils import resource_path
-        for fname in ["font.ttf", "font.otf"]:
-            path = resource_path(fname)
-            if os.path.exists(path):
-                return pygame.font.Font(path, size)
-        return pygame.font.Font(None, size)
