@@ -61,6 +61,7 @@ class Game:
         self.menu_scene = None
         self.combat_scene = None
         self.backpack_scene = None
+        self.reward_scene = None
         self.death_scene = None
         self.victory_scene = None
         self.game_over_scene = None
@@ -131,13 +132,12 @@ class Game:
             return
         self._start_combat()
 
-    def _start_combat(self, pending_rewards: list | None = None) -> None:
+    def _start_combat(self) -> None:
         """启动战斗场景"""
         from scenes.combat_scene import CombatScene
         self.combat_scene = CombatScene(
             self.player, self.backpack, self.revive_system,
             self.current_floor, self.monsters_killed,
-            pending_rewards=pending_rewards,
             audio_manager=self.audio,
             difficulty=self.difficulty,
         )
@@ -262,8 +262,7 @@ class Game:
         elif self.scene == "reward" and self.reward_scene:
             result = self.reward_scene.handle_event(event)
             if result == "combat":
-                pending = self.reward_scene.get_pending_rewards()
-                self._start_combat(pending_rewards=pending)
+                self._start_combat()
             # 不再直接从 handle_event 返回 combat（由 update 延迟返回）
 
         elif self.scene == "victory" and self.victory_scene:
@@ -327,8 +326,7 @@ class Game:
         elif self.scene == "reward" and self.reward_scene:
             result = self.reward_scene.update(dt)
             if result == "combat":
-                pending = self.reward_scene.get_pending_rewards()
-                self._start_combat(pending_rewards=pending)
+                self._start_combat()
 
         elif self.scene == "game_over" and self.game_over_scene:
             result = self.game_over_scene.update(dt)

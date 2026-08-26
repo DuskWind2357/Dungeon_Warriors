@@ -26,7 +26,10 @@ from systems.combat import (
     projectile_hit_monster, move_toward, is_in_range, monster_attack_player,
 )
 from systems.inventory import add_item
-from systems.floor_manager import generate_map, find_spawn_point, spawn_monsters, get_floor_type
+from systems.floor_manager import (
+    generate_map, find_spawn_point, spawn_monsters, get_floor_type,
+    get_theme, place_traps,
+)
 from systems.pathfinding import astar, simplify_path, pixel_to_grid, grid_to_pixel, random_walkable
 from systems.save_system import save_game
 from systems.revive_system import ReviveSystem
@@ -48,7 +51,6 @@ class CombatScene:
                  revive_system: ReviveSystem,
                  current_floor: int,
                  monsters_killed: int = 0,
-                 pending_rewards: list | None = None,
                  audio_manager: AudioManager | None = None,
                  difficulty: str = "easy") -> None:
         self.player = player
@@ -58,9 +60,6 @@ class CombatScene:
         self.monsters_killed = monsters_killed
         self.audio = audio_manager
         self.difficulty = difficulty
-
-        # 延迟奖励（从 reward_scene 传来的）
-        self.pending_rewards = pending_rewards or []
 
         # 楼层数据
         self.grid: list[list[int]] = []
@@ -105,16 +104,14 @@ class CombatScene:
         # HP 自动回满
         self.player.heal_full()
 
-        # 延迟奖励入包
-        for item in self.pending_rewards:
-            add_item(self.backpack, item)
-        self.pending_rewards.clear()
-
         # 生成地图
         self.grid = generate_map(MAP_COLS, MAP_ROWS)
         self.spawn_pos = find_spawn_point(self.grid, MAP_COLS, MAP_ROWS)
+        if get_theme(self.current_floor) == "hell":
+            place_traps(self.grid, MAP_COLS, MAP_ROWS, self.spawn_pos)
         self.portal_pos = (MAP_COLS // 2, MAP_ROWS // 2)
         self.portal_active = False
+        self._trap_timer = 0.0  # 陷阱伤害计时器
 
         # 出生点
         self.in_spawn_zone = True
@@ -254,6 +251,9 @@ class CombatScene:
         # Buff
         self._update_buffs(dt)
 
+        # 陷阱（地狱主题）
+        self._update_traps(dt)
+
         # Toasts 倒计时
         for t in self.toasts:
             t["timer"] -= dt
@@ -284,12 +284,12 @@ class CombatScene:
             py = self.portal_pos[1] * TILE_SIZE + TILE_SIZE // 2
             in_portal = math.sqrt((self.player.x - px)**2 + (self.player.y - py)**2) < TILE_SIZE
             if in_portal:
-                # 背包空格校验
+                # 背包空格校验（V1.0.4 P2 文案）
                 empty = sum(1 for s in self.backpack if s is None)
                 if empty <= 1:
-                    msg = "背包栏位已满，无法传送！" if empty == 0 else "背包栏位将满，无法传送！"
+                    msg = "背包已满，无法传送！" if empty == 0 else "背包将满，无法传送！"
                     self._portal_toast = make_toast(msg)
-                    self._portal_timer = -1  # 重置倒计时
+                    self._portal_timer = -1  # 重置倒计时，取消传送进程
                 else:
                     self._portal_toast = None
                     if not hasattr(self, '_portal_timer'): self._portal_timer = 0.0
@@ -342,6 +342,21 @@ class CombatScene:
 
         self.player.update_buffs(dt)
 
+    def _update_traps(self, dt: float) -> None:
+        """地狱陷阱：踩上每秒扣 5 点固定生命（无视减伤），每秒播放一次燃烧音效"""
+        col, row = pixel_to_grid(self.player.x, self.player.y)
+        on_trap = (0 <= row < len(self.grid) and 0 <= col < len(self.grid[0])
+                   and self.grid[row][col] == 2)
+        if not on_trap or not self.player.is_alive():
+            self._trap_timer = 0.0
+            return
+        self._trap_timer += dt
+        if self._trap_timer >= 1.0:
+            self._trap_timer -= 1.0
+            self.player.current_hp = max(0, self.player.current_hp - 5)
+            if self.audio:
+                self.audio.play_player_burn_tick()
+
     def _check_spawn_zone(self, dt: float) -> None:
         """安全区：离开后立即消失，不再重生"""
         if self.monsters:
@@ -391,6 +406,9 @@ class CombatScene:
                     # 燃烧效果（火球）
                     if proj.get('burn'):
                         self.player.add_status("burn", proj['burn'], proj.get('burn_dmg', 7))
+                    # 霜冻效果（流髑箭矢）
+                    if proj.get('frost'):
+                        self.player.add_status("frost", proj['frost'])
                     if self.audio:
                         self.audio.play_player_hit()
                     if not self.player.is_alive():
@@ -504,17 +522,17 @@ class CombatScene:
             if not hasattr(monster, 'skill_cd'): monster.skill_cd = 0.0
             if monster.skill_cd > 0: monster.skill_cd -= dt
 
-            # 精英僵尸: >3格且未满血 → 回复50%
-            if '精英僵尸' in monster.name and monster.skill_cd <= 0 and dist_to_player > TILE_SIZE*3 and monster.hp < monster.max_hp:
+            # 精英僵尸/冰霜僵尸: >3格且HP<50% → 回复50%（不满足则不进冷却）
+            if ('精英僵尸' in monster.name or '冰霜僵尸' in monster.name) and monster.skill_cd <= 0 and dist_to_player > TILE_SIZE*3 and monster.hp < monster.max_hp * 0.5:
                 monster.hp = min(monster.max_hp, monster.hp + monster.max_hp//2)
                 monster.skill_cd = 20.0; self.toasts.append(make_toast(f'{monster.name} 回复生命！'))
-            # 精英骷髅: >3格 → 三连箭
-            elif '精英骷髅' in monster.name and monster.skill_cd <= 0 and dist_to_player > TILE_SIZE*3:
+            # 精英骷髅/流髑: >3格 → 三连箭
+            elif ('精英骷髅' in monster.name or '流髑' in monster.name) and monster.skill_cd <= 0 and dist_to_player > TILE_SIZE*3:
                 for j in range(3):
                     a = math.atan2(self.player.y-monster.y, self.player.x-monster.x) + (j-1)*0.08
                     vx = math.cos(a)*PROJECTILE_SPEED*0.75; vy = math.sin(a)*PROJECTILE_SPEED*0.75
-                    self.projectiles.append({'x':monster.x,'y':monster.y,'vx':vx,'vy':vy,'damage':monster.attack,'traveled':0,'weapon':None,'shooter':id(monster)})
-                monster.skill_cd = 20.0; self.toasts.append(make_toast('精英骷髅 三连箭！'))
+                    self.projectiles.append({'x':monster.x,'y':monster.y,'vx':vx,'vy':vy,'damage':monster.attack,'traveled':0,'weapon':None,'shooter':id(monster),'frost': 3.0} if '流髑' in monster.name else {'x':monster.x,'y':monster.y,'vx':vx,'vy':vy,'damage':monster.attack,'traveled':0,'weapon':None,'shooter':id(monster)})
+                monster.skill_cd = 20.0; self.toasts.append(make_toast(f'{monster.name} 三连箭！'))
             # 暗影骑士: >3格 → 冲刺(1秒×2速)
             elif '暗影骑士' in monster.name and '暗黑' not in monster.name and monster.skill_cd <= 0 and dist_to_player > TILE_SIZE*3:
                 monster._orig_spd = monster.speed; monster.speed = int(monster.speed*2)
@@ -584,6 +602,9 @@ class CombatScene:
                                 proj['burn'] = 3.0; proj['burn_dmg'] = 7; proj['damage'] = 5
                             elif '炎魔' in monster.name:
                                 proj['burn'] = 5.0; proj['burn_dmg'] = 8; proj['damage'] = 8
+                            # 流髑箭矢附加霜冻（V1.0.4）
+                            if '流髑' in monster.name:
+                                proj['frost'] = 3.0
                             self.projectiles.append(proj)
                         cd = 5.0 if '烈焰使者' in monster.name else (6.0 if '炎魔' in monster.name else 1.2)
                         monster.cooldown_remaining = cd
@@ -609,6 +630,9 @@ class CombatScene:
                 elif "暗黑骑士" in monster.name:
                     self.player.add_status("wither", 5.0)
                     self.player.buffs.pop("heal_over_time", None)
+                # 霜冻攻击（V1.0.4 冰霜僵尸）
+                if '冰霜僵尸' in monster.name:
+                    self.player.add_status("frost", 4.0)
                 if self.audio:
                     self.audio.play_player_hit()
                 if not self.player.is_alive():
@@ -630,7 +654,7 @@ class CombatScene:
         if need_replan:
             monster._recalc = 1.0 + random.uniform(-0.2, 0.2)
             sc, sr = pixel_to_grid(monster.x, monster.y)
-            if 0 <= sc < MAP_COLS and 0 <= sr < MAP_ROWS and self.grid[sr][sc] == 0:
+            if 0 <= sc < MAP_COLS and 0 <= sr < MAP_ROWS and self.grid[sr][sc] != 1:
                 target = goal_grid if goal_grid else random_walkable(self.grid)
                 if target:
                     raw = astar(self.grid, (sc, sr), target)
@@ -810,21 +834,20 @@ class CombatScene:
                 self.drops.append((random.choice(POTION_POOL), mx - 5, my + 5))
 
     def _drop_better_equip(self, monster: Monster) -> None:
+        """头目掉落：玩家同类型装备满级或特殊时，掉落必为特殊（V1.0.4 P2）"""
         choice = random.choice(["melee_weapon", "ranged_weapon", "armor"])
         current_tier = 0
         is_special = False
 
         if choice == "melee_weapon" and self.player.melee_weapon:
             current_tier = self.player.melee_weapon.tier
-            is_special = (current_tier >= 5 and self.player.melee_weapon.name in
-                          ["三叉戟", "机械链锯"])
+            is_special = (current_tier >= 5)
         elif choice == "ranged_weapon" and self.player.ranged_weapon:
             current_tier = self.player.ranged_weapon.tier
-            is_special = (current_tier >= 5 and self.player.ranged_weapon.name in
-                          ["精英之弓", "杀戮之弩", "机械弩", "幻术师之弓"])
+            is_special = (current_tier >= 5)
         elif choice == "armor" and self.player.armor:
             current_tier = self.player.armor.tier
-            is_special = (current_tier >= 5 and self.player.armor.armor_type == "special")
+            is_special = (current_tier >= 5 or self.player.armor.armor_type == "special")
 
         new_tier = min(5, current_tier + 1)
 
@@ -916,7 +939,8 @@ class CombatScene:
     def draw(self, screen: pygame.Surface) -> None:
         screen.fill(COLOR_BG)
         draw_map(screen, self.grid, self.spawn_pos, self.portal_pos,
-                 self.portal_active, self.in_spawn_zone, self.floor_type)
+                 self.portal_active, self.in_spawn_zone,
+                 get_theme(self.current_floor))
         draw_drops(screen, self.drops)
         for monster in self.monsters:
             if monster.is_alive():

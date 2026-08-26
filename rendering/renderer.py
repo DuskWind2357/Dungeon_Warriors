@@ -53,6 +53,8 @@ MONSTER_ICON_MAP: dict[str, str] = {
     "炎魔": "icon/WildfireFace.webp",
     "掠夺者突袭队长": "icon/EnchanterFace.webp",
     "卫道士突袭队长": "icon/RoyalGuardFace.webp",
+    "冰霜僵尸": "icon/FrozenZombieFace.webp",
+    "流髑": "icon/StrayFace.png",
 }
 # 高塔之主按阶段
 BOSS_PHASE_ICONS: dict[int, str] = {
@@ -72,32 +74,63 @@ def _load_icon(filename: str, size: int) -> pygame.Surface | None:
     return None
 
 
-# 地图贴图路径映射
-_MAP_TEXTURE_PATHS = {
-    "wall":           "icon/block/墙壁.png",
-    "wall_var":       "icon/block/墙壁变种.webp",
-    "floor":          "icon/block/地砖.png",
-    "floor_var":      "icon/block/地砖变种.png",
-    "spawn":          "icon/block/出生点.webp",
-    "boss_wall":      "icon/block/BOSS楼层墙壁.png",
-    "boss_floor":     "icon/block/BOSS楼层地砖.webp",
+# 地图主题贴图路径映射（V1.0.4）
+_THEME_TEXTURE_PATHS: dict[str, dict[str, str]] = {
+    "dungeon": {
+        "spawn":     "icon/block/地牢/出生点.webp",
+        "floor":     "icon/block/地牢/地砖.png",
+        "floor_var": "icon/block/地牢/地砖变种.png",
+        "wall":      "icon/block/地牢/墙壁.png",
+        "wall_var1": "icon/block/地牢/墙壁变种1.webp",
+        "wall_var2": "icon/block/地牢/墙壁变种2.webp",
+    },
+    "snow": {
+        "spawn":     "icon/block/雪地/玩家出生点.png",
+        "floor":     "icon/block/雪地/地砖.webp",
+        "floor_var": "icon/block/雪地/地砖变种.webp",
+        "wall":      "icon/block/雪地/墙壁.webp",
+        "wall_var1": "icon/block/雪地/墙壁变种.webp",
+    },
+    "hell": {
+        "spawn":     "icon/block/地狱/出生点.png",
+        "floor":     "icon/block/地狱/地砖.png",
+        "floor_var": "icon/block/地狱/地砖变种.png",
+        "wall":      "icon/block/地狱/墙壁.png",
+        "trap":      "icon/block/地狱/陷阱.webp",
+    },
+    "boss": {
+        "spawn":     "icon/block/头目/BlockSprite_lodestone.webp",
+        "floor":     "icon/block/头目/头目楼层地砖.webp",
+        "wall":      "icon/block/头目/头目楼层墙壁.png",
+    },
+}
+
+# 各主题变种概率（V1.0.4）
+_THEME_VARIANTS: dict[str, dict] = {
+    "dungeon": {"floor_var": 0.20, "wall_var1": 0.10, "wall_var2": 0.10},
+    "snow":    {"floor_var": 0.20, "wall_var1": 0.20},
+    "hell":    {"floor_var": 0.20},
+    "boss":    {},
 }
 
 
 def _load_map_textures() -> None:
-    """预加载地图贴图并缩放至 TILE_SIZE"""
+    """预加载全部主题地图贴图并缩放至 TILE_SIZE"""
     if _map_textures:
         return
-    for key, path in _MAP_TEXTURE_PATHS.items():
-        full = resource_path(path)
-        if os.path.exists(full):
-            try:
-                img = pygame.image.load(full).convert_alpha()
-                _map_textures[key] = pygame.transform.scale(img, (TILE_SIZE, TILE_SIZE))
-            except Exception:
-                _map_textures[key] = None
-        else:
-            _map_textures[key] = None
+    for theme, paths in _THEME_TEXTURE_PATHS.items():
+        _map_textures[theme] = {}
+        for key, path in paths.items():
+            full = resource_path(path)
+            if os.path.exists(full):
+                try:
+                    img = pygame.image.load(full).convert_alpha()
+                    _map_textures[theme][key] = pygame.transform.scale(
+                        img, (TILE_SIZE, TILE_SIZE))
+                except Exception:
+                    _map_textures[theme][key] = None
+            else:
+                _map_textures[theme][key] = None
 
 def _get_monster_icon(monster, size: int) -> pygame.Surface | None:
     """获取怪物图标（含BOSS阶段判定）"""
@@ -120,9 +153,13 @@ def draw_map(screen: pygame.Surface, grid: list[list[int]],
              portal_pos: tuple[int, int],
              portal_active: bool,
              in_spawn_zone: bool,
-             floor_type: str = "battle") -> None:
-    """绘制地图网格（贴图版本）"""
+             theme: str = "dungeon") -> None:
+    """绘制地图网格（V1.0.4 主题贴图版本）"""
     _load_map_textures()
+    if theme not in _THEME_TEXTURE_PATHS:
+        theme = "dungeon"
+    texs = _map_textures.get(theme, {})
+    probs = _THEME_VARIANTS.get(theme, {})
     sc, sr = spawn_pos
 
     for row in range(len(grid)):
@@ -130,39 +167,49 @@ def draw_map(screen: pygame.Surface, grid: list[list[int]],
             x = col * TILE_SIZE
             y = row * TILE_SIZE
 
-            # 出生点方格使用独立图片，不参与变种
+            # 出生点方格使用主题专属图片，不参与变种
             if (col, row) == (sc, sr):
-                tex = _map_textures.get("spawn")
+                tex = texs.get("spawn")
                 if tex:
                     screen.blit(tex, (x, y))
                 else:
                     pygame.draw.rect(screen, COLOR_SPAWN[:3], (x, y, TILE_SIZE, TILE_SIZE))
                 continue
 
-            if grid[row][col] == 1:
-                # 墙壁：BOSS层使用专用贴图，其他层10%概率变种
-                if floor_type in ("boss", "final_boss"):
-                    key = "boss_wall"
-                else:
-                    seed = row * 1000 + col
-                    rng = random.Random(seed)
-                    is_variant = rng.random() < 0.1
-                    key = "wall_var" if is_variant else "wall"
-                tex = _map_textures.get(key)
+            cell = grid[row][col]
+            if cell == 1:
+                # 墙壁变种（固定种子，避免闪烁）
+                key = "wall"
+                v1 = probs.get("wall_var1", 0)
+                v2 = probs.get("wall_var2", 0)
+                if v1 or v2:
+                    rng = random.Random(row * 1000 + col)
+                    r = rng.random()
+                    if r < v1:
+                        key = "wall_var1"
+                    elif r < v1 + v2:
+                        key = "wall_var2"
+                tex = texs.get(key) or texs.get("wall")
                 if tex:
                     screen.blit(tex, (x, y))
                 else:
                     pygame.draw.rect(screen, COLOR_WALL, (x, y, TILE_SIZE, TILE_SIZE))
-            else:
-                # 地板：BOSS层使用专用贴图，其他层10%概率变种
-                if floor_type in ("boss", "final_boss"):
-                    key = "boss_floor"
+            elif cell == 2:
+                # 陷阱格（地狱主题）
+                tex = texs.get("trap") or texs.get("floor")
+                if tex:
+                    screen.blit(tex, (x, y))
                 else:
-                    seed = row * 1000 + col + 50000
-                    rng = random.Random(seed)
-                    is_variant = rng.random() < 0.1
-                    key = "floor_var" if is_variant else "floor"
-                tex = _map_textures.get(key)
+                    pygame.draw.rect(screen, COLOR_FLOOR, (x, y, TILE_SIZE, TILE_SIZE))
+            else:
+                # 地板变种（固定种子，避免闪烁）
+                key = "floor"
+                fv = probs.get("floor_var", 0)
+                if fv:
+                    rng = random.Random(row * 1000 + col + 50000)
+                    if rng.random() < fv:
+                        key = "floor_var"
+                tex = texs.get(key) or texs.get("floor")
                 if tex:
                     screen.blit(tex, (x, y))
                 else:
@@ -338,20 +385,21 @@ def draw_drops(screen: pygame.Surface,
 def draw_hud(screen: pygame.Surface, player: Player,
              current_floor: int, revive_count: int,
              font: pygame.font.Font | None = None) -> None:
-    """绘制 HUD v2.1（HP成长、Buff计时器、装备信息）"""
+    """绘制 HUD v2.2（V1.0.4 P2 中文文案 + 主题色）"""
     if font is None:
         font = _get_default_font()
 
     max_hp = player.total_max_hp(current_floor)
 
-    # 第一行：生命值 + 楼层 + 复活（并排显示，深灰色）
-    hp_text = f"HP: {player.current_hp}/{max_hp}"
-    floor_text = f"Floor: {current_floor}/30"
-    revive_text = f"Revives: {revive_count}"
+    # 第一行：生命值 + 当前楼层 + 剩余生命条数（雪地/地狱层白色，其余深灰）
+    hp_text = f"生命值: {player.current_hp}/{max_hp}"
+    floor_text = f"当前楼层: {current_floor}/30"
+    revive_text = f"剩余生命条数: {revive_count}"
     first_line = f"{hp_text}   {floor_text}   {revive_text}"
+    hud_color = (255, 255, 255) if current_floor in range(11, 20) or current_floor in range(21, 30) else COLOR_HUD
 
     y_offset = 10
-    surf = font.render(first_line, True, COLOR_HUD)
+    surf = font.render(first_line, True, hud_color)
     screen.blit(surf, (10, y_offset))
     y_offset += 22
 
@@ -360,7 +408,7 @@ def draw_hud(screen: pygame.Surface, player: Player,
     draw_progress_bar(screen, 10, y_offset + 2, bar_width, 10,
                       player.current_hp / max_hp, COLOR_HP_BAR)
 
-    # 装备（左下方，深灰色）
+    # 装备（左下方，与首行同色）
     equip_y = y_offset + 18
     mw = player.melee_weapon
     rw = player.ranged_weapon
@@ -368,21 +416,21 @@ def draw_hud(screen: pygame.Surface, player: Player,
     ranged_text = f"R: {rw.name} (+{rw.attack_bonus})" if rw else "R: None"
     armor_text = f"A: {player.armor.name}" if player.armor else "A: None"
     for text in [weapon_text, ranged_text, armor_text]:
-        surf = font.render(text, True, COLOR_HUD)
+        surf = font.render(text, True, hud_color)
         screen.blit(surf, (10, equip_y))
         equip_y += 18
 
-    # 右上：活跃 Buff 列表
+    # 右上：BUFF 列表（V1.0.4：统一“名称 秒数”格式与主题色）
     buff_y = 10
     buff_colors = {
-        "strength": COLOR_DROP_POWER,
-        "invisible": COLOR_INVIS,
-        "swift": COLOR_SWIFT,
-        "heal_over_time": COLOR_BUFF_ACTIVE,
+        "strength":       (180, 80, 255),   # 力量：紫色
+        "swift":          (80, 160, 255),   # 迅捷：蓝色
+        "invisible":      (255, 215, 0),    # 隐身：金色
+        "heal_over_time": (255, 80, 80),    # 生命恢复：红色
     }
     buff_names = {
-        "strength": "STR x2", "invisible": "隐身",
-        "swift": "迅捷", "heal_over_time": "回复",
+        "strength": "力量", "invisible": "隐身",
+        "swift": "迅捷", "heal_over_time": "生命恢复",
     }
     for buff_type, remaining in sorted(player.buffs.items()):
         if remaining > 0:
@@ -394,8 +442,12 @@ def draw_hud(screen: pygame.Surface, player: Player,
             buff_y += 18
 
     # 负面状态效果（右上方，buff下方）
-    se_names = {"wither": "凋零", "burn": f"燃烧({int(player._burn_dmg)}/s)"}
-    se_colors = {"wither": (80, 80, 80), "burn": (255, 80, 30)}
+    se_names = {"wither": "凋零", "burn": "燃烧", "frost": "霜冻"}
+    se_colors = {
+        "wither": (0, 0, 0),        # 凋零：黑色
+        "burn":   (255, 140, 0),    # 燃烧：橙色
+        "frost":  (150, 200, 255),  # 霜冻：淡蓝色
+    }
     for se_type, remaining in sorted(player.status_effects.items()):
         if remaining > 0 and se_type in se_names:
             se_text = f"{se_names[se_type]} {remaining:.1f}s"

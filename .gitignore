@@ -1,0 +1,40 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.pyd
+*.pyw
+*.pyc
+*.pyo
+*.pyd
+*.pyw
+
+# 虚拟环境
+.venv/
+venv/
+env/
+ENV/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# 运行时文件
+*.log
+save.json
+debug.log
+
+# 打包文件
+*.egg
+*.egg-info/
+eggs/
+*.whl
+
+# 临时文件
+*.tmp
+*.bak
+*.backup

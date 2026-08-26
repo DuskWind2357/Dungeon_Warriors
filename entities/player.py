@@ -81,12 +81,14 @@ class Player:
             atk *= POWER_POTION_MULT
         return atk
     def total_speed(self) -> float:
-        """移动速度（浮点）"""
+        """移动速度（浮点）。霜冻期间降为 60%"""
         spd = float(self.speed)
         if self.armor and self.armor.speed_bonus_pct > 0:
             spd *= (1 + self.armor.speed_bonus_pct)
         if 'swift' in self.buffs and self.buffs['swift'] > 0:
             spd *= SWIFT_POTION_MULT
+        if self.has_status("frost"):
+            spd *= 0.6
         return max(1.0, spd)
     def damage_reduction(self) -> float:  # 浮点
         """伤害减免比例"""

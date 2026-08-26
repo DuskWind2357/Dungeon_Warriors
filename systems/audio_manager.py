@@ -50,6 +50,7 @@ class AudioManager:
         if "精英僵尸" in name: return "zombie"
         if "骷髅" in name and "精英" not in name: return "skeleton"
         if "精英骷髅" in name: return "skeleton"
+        if "流髑" in name: return "skeleton"
         if "史莱姆" in name: return "slime"
         if "蜘蛛" in name: return "spider"
         if "蝙蝠" in name: return "bat"
@@ -161,6 +162,9 @@ class AudioManager:
         key = self._monster_key(monster_name)
         if key in ("skeleton",):
             self._play_root("skeleton", "射箭", f"arrow")
+        elif key == "pillager":
+            # V1.0.4 P2：掠夺者突袭队长射箭音效（复用骷髅射箭.ogg）
+            self._play_root("skeleton", "射箭", "arrow")
         elif key in ("flame_envoy", "flame_demon", "tower_master"):
             self._play_root(key, "发射火球", f"fireball")
 

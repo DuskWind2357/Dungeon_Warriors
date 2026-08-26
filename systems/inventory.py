@@ -185,8 +185,17 @@ def _equip_weapon(player: Player, backpack: list[Item | None],
 
 def _equip_armor(player: Player, backpack: list[Item | None],
                  slot_index: int, armor: Armor) -> str:
-    """装备护甲，自动交换"""
+    """装备护甲，自动交换。
+    百分比机制：换甲前后当前生命保持相同的生命值百分比。"""
+    old_max = player.total_max_hp()
+    ratio = (player.current_hp / old_max) if old_max > 0 else 1.0
+
     old = player.equip_armor(armor)
+
+    # 换甲后按比例换算至新总生命上限
+    new_max = player.total_max_hp()
+    player.current_hp = max(0, min(new_max, round(ratio * new_max)))
+
     backpack[slot_index] = None
 
     if old:

@@ -41,7 +41,8 @@ class RewardScene:
         self.selected: int = -1
         self.confirmed: bool = False
         self.revealed_text: str = ""
-        self.pending_rewards: list = []
+        self.max_warning: bool = False      # 生命条数已达上限红字提示
+        self.blocked_text: str = ""         # 空间不足禁止确认提示
         self.confirm_btn: pygame.Rect | None = None
         self._layout_buttons()
 
@@ -108,9 +109,9 @@ class RewardScene:
         return (label, desc, item)
 
     def _gen_mystery(self) -> tuple[str, str, object | None]:
-        """生成神秘奖励（选择前隐藏内容）"""
+        """生成神秘奖励（选择前隐藏内容）。复活选项始终可刷出，满条时确认仅提示。"""
         roll = random.random()
-        if roll < 0.20 and self.revive_system.revives_remaining < MAX_REVIVES:
+        if roll < 0.20:
             return ("神秘奖励", "???", "revive")
         elif roll < 0.25:
             return ("神秘奖励", "???", [HEALTH_POTION, HEALTH_POTION])
@@ -167,35 +168,46 @@ class RewardScene:
         cx = WINDOW_WIDTH // 2
         self.confirm_btn = pygame.Rect(cx - btn_w // 2, 540, btn_w, btn_h)
 
+    def _needed_slots(self) -> int:
+        """当前选中奖励所需的背包空位数"""
+        _, _, reward = self.options[self.selected]
+        if reward == "revive":
+            return 0
+        if isinstance(reward, list):
+            return len(reward)
+        return 1
+
+    def _can_confirm(self) -> bool:
+        """背包空位是否足够容纳所选奖励"""
+        from systems.inventory import count_empty_slots
+        return count_empty_slots(self.backpack) >= self._needed_slots()
+
     def _confirm(self) -> None:
+        from entities.item import Weapon, Armor, Consumable
+        from systems.inventory import add_item
+
+        # 空间不足 → 禁止确认
+        if not self._can_confirm():
+            self.blocked_text = f"背包空位不足（需 {self._needed_slots()} 格），无法确认！"
+            return
+        self.blocked_text = ""
+
         _, _, reward = self.options[self.selected]
 
         if reward == "revive":
-            self.revive_system.revive_count = min(MAX_REVIVES,
-                                                   self.revive_system.revive_count + 1)
-            self.revealed_text = "+1 复活次数"
-        elif isinstance(reward, list):
-            self.pending_rewards.extend(reward)
-            self.revealed_text = f"{reward[0].name} ×{len(reward)}"
-        elif reward is not None:
-            from entities.item import Weapon, Armor
-            from systems.inventory import add_item
-            if isinstance(reward, Weapon):
-                if reward.category == "melee":
-                    old = self.player.equip_melee_weapon(reward)
-                else:
-                    old = self.player.equip_ranged_weapon(reward)
-                self.revealed_text = f"{reward.name}"
-                if old and not add_item(self.backpack, old):
-                    self.pending_rewards.append(old)
-            elif isinstance(reward, Armor):
-                old = self.player.equip_armor(reward)
-                self.revealed_text = f"{reward.name}"
-                if old and not add_item(self.backpack, old):
-                    self.pending_rewards.append(old)
+            self.revealed_text = "获得：生命条数+1"
+            if self.revive_system.revives_remaining < MAX_REVIVES:
+                self.revive_system.revive_count += 1
+                self.max_warning = False
             else:
-                self.pending_rewards.append(reward)
-                self.revealed_text = f"{reward.name}"
+                self.max_warning = True
+        elif isinstance(reward, list):
+            for item in reward:
+                add_item(self.backpack, item)
+            self.revealed_text = f"获得：{reward[0].name} ×{len(reward)}"
+        elif isinstance(reward, (Weapon, Armor, Consumable)):
+            add_item(self.backpack, reward)
+            self.revealed_text = f"获得：{reward.name}"
 
         self.confirmed = True
         self._reveal_timer = 1.5  # 1.5秒展示时间
@@ -207,9 +219,6 @@ class RewardScene:
             if self._reveal_timer <= 0:
                 return "combat"
         return None
-
-    def get_pending_rewards(self) -> list:
-        return self.pending_rewards
 
     def draw(self, screen: pygame.Surface) -> None:
         draw_overlay(screen, 190)
@@ -229,7 +238,7 @@ class RewardScene:
         # 背包容量警告
         from systems.inventory import count_empty_slots
         empty = count_empty_slots(self.backpack)
-        needed = len(self.pending_rewards) if self.selected >= 0 else 1
+        needed = self._needed_slots() if self.selected >= 0 else 1
         if empty < needed:
             warn = get_font(16).render(
                 f"⚠ 背包空间不足！(空位:{empty}, 需要:{needed})",
@@ -264,11 +273,20 @@ class RewardScene:
             pygame.draw.rect(screen, COLOR_BUTTON_BORDER, self.confirm_btn, width=2, border_radius=4)
             cfm = font_btn.render("确认选择", True, COLOR_BUTTON_TEXT)
             screen.blit(cfm, cfm.get_rect(center=self.confirm_btn.center))
+            # 空间不足禁止确认提示（红色）
+            if self.blocked_text:
+                blk = get_font(16).render(self.blocked_text, True, (255, 60, 60))
+                screen.blit(blk, blk.get_rect(center=(cx, self.confirm_btn.bottom + 18)))
 
         # 神秘奖励揭晓
         if self.confirmed and self.revealed_text:
-            rev = get_font(22).render(f"获得: {self.revealed_text}", True, COLOR_TITLE)
+            rev = get_font(22).render(self.revealed_text, True, COLOR_TITLE)
             screen.blit(rev, rev.get_rect(center=(cx, WINDOW_HEIGHT - 40)))
+            # 生命条数已达上限红字提示
+            if self.max_warning:
+                warn = get_font(16).render(
+                    "剩余生命条数已达上限，不再增加！", True, (255, 60, 60))
+                screen.blit(warn, warn.get_rect(center=(cx, WINDOW_HEIGHT - 16)))
         elif self.selected < 0:
             hint = get_font(16).render("点击选择一项奖励", True, (160, 160, 160))
             screen.blit(hint, hint.get_rect(center=(cx, WINDOW_HEIGHT - 40)))

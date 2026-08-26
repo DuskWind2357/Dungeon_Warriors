@@ -13,6 +13,7 @@ from systems.revive_system import ReviveSystem
 from data.weapons import WEAPON_BY_NAME
 from data.armor import ARMOR_BY_NAME
 from data.consumables import CONSUMABLE_BY_NAME
+from config import INVENTORY_SIZE
 
 SAVE_FILE = "save.json"
 SAVE_VERSION = 2
@@ -71,7 +72,8 @@ def load_game() -> dict | None:
         with open(path, "r", encoding="utf-8") as f:
             data = json.load(f)
 
-        if data.get("version", 0) < 1:
+        version = data.get("version", 0)
+        if not isinstance(version, (int, float)) or version < 1:
             return None
 
         # 重建 Player
@@ -91,7 +93,8 @@ def load_game() -> dict | None:
             "monsters_killed": data.get("monsters_killed", 0),
             "scene_state": data.get("scene_state", "combat"),
         }
-    except (json.JSONDecodeError, KeyError, OSError):
+    except (json.JSONDecodeError, KeyError, TypeError,
+            ValueError, AttributeError, OSError):
         return None
 
 
@@ -111,24 +114,41 @@ def _serialize_player(player: Player) -> dict:
 
 
 def _deserialize_player(data: dict) -> Player:
-    """反序列化玩家数据"""
+    """反序列化玩家数据（防御式：字段缺失/类型错误/空值均回退默认）"""
     player = Player()
-    player.current_hp = data.get("current_hp", player.base_hp)
-    player.boss_kills = data.get("boss_kills", 0)
-    player.elite_kills = data.get("elite_kills", 0)
-    player._burn_dmg = data.get("_burn_dmg", 7.0)
-    player.buffs = data.get("buffs", {})
-    player.status_effects = data.get("status_effects", {})
+
+    hp = data.get("current_hp")
+    player.current_hp = int(hp) if isinstance(hp, (int, float)) else player.base_hp
+
+    bk = data.get("boss_kills")
+    player.boss_kills = int(bk) if isinstance(bk, (int, float)) else 0
+
+    ek = data.get("elite_kills")
+    player.elite_kills = int(ek) if isinstance(ek, (int, float)) else 0
+
+    bd = data.get("_burn_dmg")
+    player._burn_dmg = float(bd) if isinstance(bd, (int, float)) else 7.0
+
+    # buffs/status_effects 必须是 dict 且值均为数值，否则整体回退为空
+    raw_buffs = data.get("buffs")
+    player.buffs = ({k: float(v) for k, v in raw_buffs.items()
+                     if isinstance(v, (int, float))}
+                    if isinstance(raw_buffs, dict) else {})
+
+    raw_se = data.get("status_effects")
+    player.status_effects = ({k: float(v) for k, v in raw_se.items()
+                              if isinstance(v, (int, float))}
+                             if isinstance(raw_se, dict) else {})
 
     melee_name = data.get("melee_weapon")
     ranged_name = data.get("ranged_weapon")
-    if melee_name and melee_name in WEAPON_BY_NAME:
+    if isinstance(melee_name, str) and melee_name in WEAPON_BY_NAME:
         player.melee_weapon = WEAPON_BY_NAME[melee_name]
-    if ranged_name and ranged_name in WEAPON_BY_NAME:
+    if isinstance(ranged_name, str) and ranged_name in WEAPON_BY_NAME:
         player.ranged_weapon = WEAPON_BY_NAME[ranged_name]
 
     armor_name = data.get("armor")
-    if armor_name and armor_name in ARMOR_BY_NAME:
+    if isinstance(armor_name, str) and armor_name in ARMOR_BY_NAME:
         player.armor = ARMOR_BY_NAME[armor_name]
 
     return player
@@ -152,22 +172,24 @@ def _serialize_backpack(backpack: list) -> list:
 
 
 def _deserialize_backpack(data: list) -> list:
-    """反序列化背包"""
+    """反序列化背包（补齐至标准容量，防止旧档/损坏档导致索引越界）"""
     backpack = []
-    for entry in data:
+    for entry in (data if isinstance(data, list) else []):
         if entry is None:
             backpack.append(None)
         elif isinstance(entry, dict):
             item_type = entry.get("type")
             name = entry.get("name", "")
-            if item_type == "weapon" and name in WEAPON_BY_NAME:
+            if item_type == "weapon" and isinstance(name, str) and name in WEAPON_BY_NAME:
                 backpack.append(WEAPON_BY_NAME[name])
-            elif item_type == "armor" and name in ARMOR_BY_NAME:
+            elif item_type == "armor" and isinstance(name, str) and name in ARMOR_BY_NAME:
                 backpack.append(ARMOR_BY_NAME[name])
-            elif item_type == "consumable" and name in CONSUMABLE_BY_NAME:
+            elif item_type == "consumable" and isinstance(name, str) and name in CONSUMABLE_BY_NAME:
                 backpack.append(CONSUMABLE_BY_NAME[name])
             else:
                 backpack.append(None)
         else:
             backpack.append(None)
+    while len(backpack) < INVENTORY_SIZE:
+        backpack.append(None)
     return backpack

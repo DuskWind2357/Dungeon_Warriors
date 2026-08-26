@@ -15,7 +15,7 @@ from config import (
 from entities.monster import Monster
 from data.monsters import (
     NORMAL_MONSTERS, NATURAL_NORMAL, ELITE_MONSTERS,
-    HEAD_BOSS_MELEE, HEAD_BOSS_RANGED, FINAL_BOSS,
+    SNOW_ELITE_MONSTERS, HEAD_BOSS_MELEE, HEAD_BOSS_RANGED, FINAL_BOSS,
 )
 
 
@@ -25,6 +25,17 @@ def get_floor_type(floor_num: int) -> str:
     elif floor_num in BOSS_FLOORS:
         return "boss"
     return "battle"
+
+
+def get_theme(floor_num: int) -> str:
+    """V1.0.4 地图主题：dungeon(1-9) / snow(11-19) / hell(21-29) / boss(10,20,30)"""
+    if floor_num in BOSS_FLOORS or floor_num == FINAL_BOSS_FLOOR:
+        return "boss"
+    if floor_num <= 9:
+        return "dungeon"
+    if floor_num <= 19:
+        return "snow"
+    return "hell"
 
 
 def generate_map(cols=MAP_COLS, rows=MAP_ROWS):
@@ -57,6 +68,28 @@ def generate_map(cols=MAP_COLS, rows=MAP_ROWS):
                 grid[sr][sc] = 0
     _ensure_path(grid, cols, rows, sp[0], sp[1], cols//2, rows//2)
     return grid
+
+
+def place_traps(grid: list[list[int]], cols: int, rows: int,
+                spawn_pos: tuple[int, int]) -> None:
+    """V1.0.4 地狱主题：10% 可行走地砖变为陷阱（值=2，可行走）。
+    排除出生点 3×3 区域与传送门格。"""
+    sc, sr = spawn_pos
+    pc, pr = cols // 2, rows // 2
+    walkable = []
+    for row in range(1, rows - 1):
+        for col in range(1, cols - 1):
+            if grid[row][col] != 0:
+                continue
+            if abs(col - sc) <= 1 and abs(row - sr) <= 1:
+                continue  # 出生点周边
+            if (col, row) == (pc, pr):
+                continue  # 传送门格
+            walkable.append((col, row))
+    n_traps = int(len(walkable) * 0.10)
+    random.shuffle(walkable)
+    for col, row in walkable[:n_traps]:
+        grid[row][col] = 2
 
 
 def find_spawn_point(grid, cols, rows):
@@ -135,67 +168,56 @@ def spawn_monsters(grid, cols, rows, spawn_pos, floor_type, floor_num, spawn_mul
             if m: monsters.append(m)
         return monsters
 
-    # Battle floor
-    if floor_num <= 9:
-        n_min, n_max = 4, 6
-        e_cfg = [(1, 0.6), (2, 0.4)]
+    # Battle floor — V1.0.4 固定刷怪表
+    if floor_num <= 4:
+        n_count, e_count = 6, 2
+    elif floor_num <= 9:
+        n_count, e_count = 8, 2
     elif floor_num <= 19:
-        n_min, n_max = 6, 8
-        e_cfg = [(2, 0.5), (3, 0.5)]
+        n_count, e_count = 12, 4
     else:
-        n_min, n_max = 8, 12
-        e_cfg = [(3, 0.6), (4, 0.4)]
+        n_count, e_count = 18, 6
 
-    nc = max(1, int(random.randint(n_min, n_max) * spawn_mult))
-    ec = 0
-    r = random.random(); cum = 0
-    for cnt, rate in e_cfg:
-        cum += rate
-        if r < cum: ec = cnt; break
-    ec = max(0, int(ec * spawn_mult))
+    nc = max(1, int(n_count * spawn_mult))
+    ec = max(0, int(e_count * spawn_mult))
+
+    # 主题精英池：地牢(1-9)=僵尸/骷髅系 雪地(11-19)=冰霜系 地狱(21-29)=全部非雪地
+    if floor_num <= 9:
+        elite_pool = [e for e in ELITE_MONSTERS if e["name"] in ("精英僵尸", "精英骷髅")]
+    elif floor_num <= 19:
+        elite_pool = SNOW_ELITE_MONSTERS
+    else:
+        snow_names = {e["name"] for e in SNOW_ELITE_MONSTERS}
+        elite_pool = [e for e in ELITE_MONSTERS if e["name"] not in snow_names]
 
     natural = [m for m in NORMAL_MONSTERS if m["name"] in NATURAL_NORMAL]
     for _ in range(nc):
         m = make_m(random.choice(natural), "normal")
         if m: monsters.append(m)
-    # 1-5层：至多1个烈焰使者或暗影骑士
-    if floor_num <= 5 and ec >= 1:
-        special_elites = []
-        for _ in range(ec):
-            pool = [e for e in ELITE_MONSTERS if not (
-                ('烈焰使者' in e['name'] and ('烈焰使者' in [x['name'] for x in special_elites] or '暗影骑士' in [x['name'] for x in special_elites])) or
-                ('暗影骑士' in e['name'] and ('烈焰使者' in [x['name'] for x in special_elites] or '暗影骑士' in [x['name'] for x in special_elites])))]
-            if not pool: pool = [e for e in ELITE_MONSTERS if e not in special_elites]
-            if not pool: pool = ELITE_MONSTERS
-            chosen = random.choice(pool)
-            m = make_m(chosen, "elite")
-            if m:
-                monsters.append(m)
-                if '烈焰使者' in chosen['name'] or '暗影骑士' in chosen['name']:
-                    special_elites.append(chosen)
-    else:
-        for _ in range(ec):
-            m = make_m(random.choice(ELITE_MONSTERS), "elite")
-            if m: monsters.append(m)
-    # 史莱姆上限50%: 超额部分替换为非史莱姆普通怪物（保持位置和数量）
+    for _ in range(ec):
+        m = make_m(random.choice(elite_pool), "elite")
+        if m: monsters.append(m)
+
+    # V1.0.4 史莱姆上限：自然刷新 ≤ 总数 1/4，超额替换为非史莱姆（总数不变）
     slime_n = sum(1 for m in monsters if '史莱姆' in m.name)
-    max_slimes = len(monsters) // 2
+    max_slimes = len(monsters) // 4
     non_slime_pool = [m for m in NORMAL_MONSTERS if m["name"] in NATURAL_NORMAL and '史莱姆' not in m["name"]]
-    for i in range(len(monsters)):
-        if slime_n <= max_slimes: break
-        if '史莱姆' in monsters[i].name:
-            replacement = random.choice(non_slime_pool)
-            old = monsters[i]
-            monsters[i] = Monster(name=replacement["name"], monster_type="normal",
-                                  hp=int(replacement["hp"]*scale)+fb*MONSTER_PER_5_FLOORS_HP,
-                                  max_hp=int(replacement["hp"]*scale)+fb*MONSTER_PER_5_FLOORS_HP,
-                                  attack=int(replacement["atk"]*scale)+fb*MONSTER_PER_5_FLOORS_ATK,
-                                  attack_range=replacement["range"],
-                                  attack_cooldown=replacement["cd"],
-                                  ranged_attacker=replacement.get("ranged", False),
-                                  speed=replacement["speed"],
-                                  x=old.x, y=old.y)
-            slime_n -= 1
+    if non_slime_pool:
+        for i in range(len(monsters)):
+            if slime_n <= max_slimes: break
+            if '史莱姆' in monsters[i].name:
+                replacement = random.choice(non_slime_pool)
+                old = monsters[i]
+                monsters[i] = Monster(name=replacement["name"], monster_type="normal",
+                                      hp=int(replacement["hp"]*scale)+fb*MONSTER_PER_5_FLOORS_HP,
+                                      max_hp=int(replacement["hp"]*scale)+fb*MONSTER_PER_5_FLOORS_HP,
+                                      attack=int(replacement["atk"]*scale)+fb*MONSTER_PER_5_FLOORS_ATK,
+                                      attack_range=replacement["range"],
+                                      attack_cooldown=replacement["cd"],
+                                      ranged_attacker=replacement.get("ranged", False),
+                                      speed=replacement["speed"],
+                                      x=old.x, y=old.y)
+                slime_n -= 1
     return monsters
 
 

@@ -1,0 +1,73 @@
+关于BUFF做出如下调整：
+BUFF的HUD显示更新：所有BUFF均显示为“名称 秒数”格式（名称以下面我提供的为准）
+燃烧：橙色字体
+霜冻：淡蓝色字体
+力量：紫色字体
+迅捷：蓝色字体
+生命恢复：红色字体
+隐身：金色字体
+
+新增规则：玩家遭受燃烧伤害时，不播放基础受击音效，只播放燃烧BUFF音效；
+
+关于全局基础刷怪逻辑：
+1-4层：6普通怪物 2精英怪物 
+5-9层：8普通怪物 2精英怪物
+11-19层 12普通怪物 4精英怪物
+21-29层 18普通怪物 6精英怪物
+
+针对史莱姆：每层史莱姆刷新数量不得超过总怪物刷新数量的1/4
+注意：刷怪总数不应因史莱姆刷新数限制而产生变化
+
+
+
+现在针对地图设计和各楼层刷怪规则做出如下优化和更新：
+
+1-9楼层：地牢
+地图贴图设计：
+ 玩家出生点方块："C:\Users\Dusk_Wind\Desktop\Project\Dungeon Warriors\icon\block\地牢\出生点.webp"
+ 地砖："C:\Users\Dusk_Wind\Desktop\Project\Dungeon Warriors\icon\block\地牢\地砖.png"
+ 地砖变种："C:\Users\Dusk_Wind\Desktop\Project\Dungeon Warriors\icon\block\地牢\地砖变种.png"
+ 墙壁："C:\Users\Dusk_Wind\Desktop\Project\Dungeon Warriors\icon\block\地牢\墙壁.png"
+ 墙壁变种1："C:\Users\Dusk_Wind\Desktop\Project\Dungeon Warriors\icon\block\地牢\墙壁变种1.webp"
+ 墙壁变种2："C:\Users\Dusk_Wind\Desktop\Project\Dungeon Warriors\icon\block\地牢\墙壁变种2.webp"
+地图生成规则：每块地砖有20%概率生成为变种；每块墙壁则有10%生成为变种1，10%生成为变种2
+特殊刷怪逻辑：精英怪物仅刷新精英僵尸和精英骷髅；
+
+11-19层：雪地
+地图贴图设计：
+玩家出生点方块："C:\Users\Dusk_Wind\Desktop\Project\Dungeon Warriors\icon\block\雪地\玩家出生点.png"
+ 地砖："C:\Users\Dusk_Wind\Desktop\Project\Dungeon Warriors\icon\block\雪地\地砖.webp"
+ 地砖变种："C:\Users\Dusk_Wind\Desktop\Project\Dungeon Warriors\icon\block\雪地\地砖变种.webp"
+ 墙壁："C:\Users\Dusk_Wind\Desktop\Project\Dungeon Warriors\icon\block\雪地\墙壁.webp"
+ 墙壁变种："C:\Users\Dusk_Wind\Desktop\Project\Dungeon Warriors\icon\block\雪地\墙壁变种.webp"
+地图生成规则：每块地砖有20%概率生成为变种；每块墙壁则有20%生成为变种；
+特殊规则：
+新增debuff：霜冻-生效期间玩家移动速度降低为原先的60%；
+特殊刷怪逻辑：
+新增两种雪地特有精英怪物：
+1：冰霜僵尸-在精英僵尸基础上附加更改：图标改为"C:\Users\Dusk_Wind\Desktop\Project\Dungeon Warriors\icon\FrozenZombieFace.webp"，同时攻击附加4秒霜冻效果；
+2：流髑-在精英骷髅基础上附加更改：图标改为"C:\Users\Dusk_Wind\Desktop\Project\Dungeon Warriors\icon\StrayFace.png"，同时攻击附加3秒霜冻效果；
+注意：雪地仅刷新这两种新增精英怪物；
+
+21-29层：地狱
+地图贴图设计：
+ 玩家出生点方块："C:\Users\Dusk_Wind\Desktop\Project\Dungeon Warriors\icon\block\地狱\出生点.png"
+ 地砖："C:\Users\Dusk_Wind\Desktop\Project\Dungeon Warriors\icon\block\地狱\地砖.png"
+ 地砖变种："C:\Users\Dusk_Wind\Desktop\Project\Dungeon Warriors\icon\block\地狱\地砖变种.png"
+ 墙壁： "C:\Users\Dusk_Wind\Desktop\Project\Dungeon Warriors\icon\block\地狱\墙壁.png"
+ 陷阱："C:\Users\Dusk_Wind\Desktop\Project\Dungeon Warriors\icon\block\地狱\陷阱.webp"
+地图生成规则：每块地砖有20%概率生成为变种，10%生成为陷阱；
+特殊机制：陷阱方块-当玩家触碰到陷阱方块时，每秒扣除5点固定生命值，此过程中的受击音效播放燃烧BUFF音效；
+特殊刷怪逻辑：除雪地特有精英怪物外其余全部精英怪物均可刷新；
+
+10、20、30层（BOSS楼层）
+地图贴图设计：
+地砖："C:\Users\Dusk_Wind\Desktop\Project\Dungeon Warriors\icon\block\头目\头目楼层地砖.webp"
+墙壁"C:\Users\Dusk_Wind\Desktop\Project\Dungeon Warriors\icon\block\头目\头目楼层墙壁.png"
+出生点方块："C:\Users\Dusk_Wind\Desktop\Project\Dungeon Warriors\icon\block\BlockSprite_lodestone.webp"
+
+额外：
+版本号更新为V 1.0.4
+按照最新版本内容补全/删改markdown文件夹里四份文件
+此次更新严格遵照项目宪章进行，暂时忽略宪章第七部分
+
