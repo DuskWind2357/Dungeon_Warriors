@@ -36,6 +36,7 @@ from systems.revive_system import ReviveSystem
 from systems.audio_manager import AudioManager
 from rendering.renderer import (
     draw_map, draw_player, draw_monster, draw_drops, draw_hud, draw_toast,
+    get_bold_font,
     get_bold_hud_font,
 )
 from rendering.pixel_style import make_toast
@@ -1166,7 +1167,7 @@ class CombatScene:
         screen.blit(overlay, (0, 0))
 
         font_title = get_bold_hud_font()
-        font_btn = pygame.font.Font(None, 36)
+        font_btn = get_bold_font(24)
 
         screen_center_x = 960 // 2
 
@@ -1200,13 +1201,14 @@ class CombatScene:
             no_rect = no_surface.get_rect(center=(screen_center_x, btn_y_no + btn_height // 2))
             screen.blit(no_surface, no_rect)
         else:
-            # 暂停菜单按钮
+            # 暂停菜单按钮（灰色）
             btn_width = 250
             btn_height = 50
+            btn_color = (100, 100, 100)
 
             # 返回主菜单
             btn_y_return = 300
-            pygame.draw.rect(screen, (100, 100, 100),
+            pygame.draw.rect(screen, btn_color,
                            (screen_center_x - btn_width // 2, btn_y_return, btn_width, btn_height))
             return_surface = font_btn.render("返回主菜单", True, (255, 255, 255))
             return_rect = return_surface.get_rect(center=(screen_center_x, btn_y_return + btn_height // 2))
@@ -1214,7 +1216,7 @@ class CombatScene:
 
             # 楼层重置
             btn_y_reset = 370
-            pygame.draw.rect(screen, (140, 100, 60),
+            pygame.draw.rect(screen, btn_color,
                            (screen_center_x - btn_width // 2, btn_y_reset, btn_width, btn_height))
             reset_surface = font_btn.render("楼层重置", True, (255, 255, 255))
             reset_rect = reset_surface.get_rect(center=(screen_center_x, btn_y_reset + btn_height // 2))
@@ -1222,7 +1224,7 @@ class CombatScene:
 
             # 继续游戏
             btn_y_continue = 440
-            pygame.draw.rect(screen, (60, 120, 180),
+            pygame.draw.rect(screen, btn_color,
                            (screen_center_x - btn_width // 2, btn_y_continue, btn_width, btn_height))
             continue_surface = font_btn.render("继续游戏", True, (255, 255, 255))
             continue_rect = continue_surface.get_rect(center=(screen_center_x, btn_y_continue + btn_height // 2))
