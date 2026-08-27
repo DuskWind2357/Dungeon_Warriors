@@ -82,6 +82,12 @@ class CombatScene:
         self._heal_frac: float = 0.0  # 面包 HoT 分数累加器
         self._burn_frac: float = 0.0  # 燃烧 DoT 分数累加器
 
+        # 暂停菜单状态（V1.0.4 P3）
+        self._paused: bool = False
+        self._pause_confirm_reset: bool = False  # 是否显示楼层重置确认弹窗
+        self._reset_countdown: float = -1.0       # 楼层重置倒计时
+        self._melee_last_used_time: float = 0.0   # 近战武器最后使用时间（连击归零用）
+
         self._init_floor()
 
     def _init_floor(self) -> None:
@@ -151,11 +157,16 @@ class CombatScene:
     # ================================================================
 
     def handle_event(self, event: pygame.event.Event) -> str | None:
+        # 暂停菜单事件处理（V1.0.4 P3）
+        if self._paused:
+            return self._handle_pause_event(event)
+
         if event.type == pygame.KEYDOWN:
             if event.key == pygame.K_ESCAPE:
-                save_game(self.player, self.backpack, self.revive_system,
-                          self.current_floor, self.monsters_killed)
-                return "menu"
+                # 打开暂停菜单
+                self._paused = True
+                self._pause_confirm_reset = False
+                return None
             if event.key == pygame.K_b:
                 return "backpack"
             if event.key == pygame.K_e:
@@ -169,6 +180,72 @@ class CombatScene:
                 self._player_attack()
             elif event.button == 3:
                 self._player_ranged_fire()
+
+        return None
+
+    def _handle_pause_event(self, event: pygame.event.Event) -> str | None:
+        """暂停菜单事件处理"""
+        if event.type == pygame.KEYDOWN:
+            if event.key == pygame.K_ESCAPE:
+                # ESC关闭暂停菜单
+                self._paused = False
+                self._pause_confirm_reset = False
+                return None
+
+        elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+            mx, my = event.pos
+            screen_center_x = 960 // 2
+
+            if self._pause_confirm_reset:
+                # 确认弹窗按钮
+                btn_y_yes = 400
+                btn_y_no = 460
+                btn_width = 200
+                btn_height = 40
+
+                # 是按钮
+                if (screen_center_x - btn_width // 2 <= mx <= screen_center_x + btn_width // 2
+                    and btn_y_yes <= my <= btn_y_yes + btn_height):
+                    # 确认楼层重置
+                    self._paused = False
+                    self._pause_confirm_reset = False
+                    self._reset_countdown = 3.0  # 开始3秒倒计时
+                    # 消耗一条生命
+                    self.revive_system.revives_remaining = max(0, self.revive_system.revives_remaining - 1)
+                    return None
+
+                # 否按钮
+                if (screen_center_x - btn_width // 2 <= mx <= screen_center_x + btn_width // 2
+                    and btn_y_no <= my <= btn_y_no + btn_height):
+                    self._pause_confirm_reset = False
+                    return None
+            else:
+                # 暂停菜单按钮
+                btn_y_return = 300
+                btn_y_reset = 370
+                btn_y_continue = 440
+                btn_width = 250
+                btn_height = 50
+
+                # 返回主菜单
+                if (screen_center_x - btn_width // 2 <= mx <= screen_center_x + btn_width // 2
+                    and btn_y_return <= my <= btn_y_return + btn_height):
+                    self._paused = False
+                    save_game(self.player, self.backpack, self.revive_system,
+                              self.current_floor, self.monsters_killed)
+                    return "menu"
+
+                # 楼层重置
+                if (screen_center_x - btn_width // 2 <= mx <= screen_center_x + btn_width // 2
+                    and btn_y_reset <= my <= btn_y_reset + btn_height):
+                    self._pause_confirm_reset = True
+                    return None
+
+                # 继续游戏
+                if (screen_center_x - btn_width // 2 <= mx <= screen_center_x + btn_width // 2
+                    and btn_y_continue <= my <= btn_y_continue + btn_height):
+                    self._paused = False
+                    return None
 
         return None
 
@@ -186,6 +263,8 @@ class CombatScene:
         hit_monsters = player_melee_attack(self.player, self.monsters)
         if not hit_monsters:
             return
+        # 更新近战最后使用时间（V1.0.4 P3 连击归零）
+        self._melee_last_used_time = 0.0
         armor = self.player.armor
         crit_mult = 1.0
         if armor and armor.crit_chance > 0 and random.random() < armor.crit_chance:
@@ -239,6 +318,50 @@ class CombatScene:
     # ================================================================
 
     def update(self, dt: float) -> str | None:
+        # 暂停菜单期间不更新游戏逻辑（V1.0.4 P3）
+        if self._paused:
+            return None
+
+        # 楼层重置倒计时（V1.0.4 P3）
+        if self._reset_countdown > 0:
+            self._reset_countdown -= dt
+            if self._reset_countdown <= 0:
+                self._reset_countdown = -1.0
+                self._init_floor()
+                self.toasts.append(make_toast("楼层已刷新！"))
+            return None
+
+        # 定身计时器更新（V1.0.4 P3）
+        self.player.stagger_timer = max(0, self.player.stagger_timer - dt)
+        self.player.stagger_immune_timer = max(0, self.player.stagger_immune_timer - dt)
+        for m in self.monsters:
+            if m.is_alive():
+                m.stagger_timer = max(0, m.stagger_timer - dt)
+                m.stagger_immune_timer = max(0, m.stagger_immune_timer - dt)
+                m.track_attacker_timer = max(0, m.track_attacker_timer - dt)
+
+        # 玩家定身期间不处理移动和攻击
+        if self.player.is_staggered():
+            # 仅更新冷却和buff
+            if self.player.attack_cooldown > 0:
+                self.player.attack_cooldown = max(0, self.player.attack_cooldown - dt)
+            if self.player.ranged_cooldown > 0:
+                self.player.ranged_cooldown = max(0, self.player.ranged_cooldown - dt)
+            for m in self.monsters:
+                if m.cooldown_remaining > 0:
+                    m.cooldown_remaining = max(0, m.cooldown_remaining - dt)
+            self._update_buffs(dt)
+            self._update_traps(dt)
+            # Toasts 倒计时
+            for t in self.toasts:
+                t["timer"] -= dt
+            self.toasts = [t for t in self.toasts if t["timer"] > 0]
+            # 投射物继续移动
+            self._update_projectiles()
+            # 怪物继续行动
+            self._update_monsters(dt)
+            return None
+
         # 冷却（秒）
         if self.player.attack_cooldown > 0:
             self.player.attack_cooldown = max(0, self.player.attack_cooldown - dt)
@@ -247,6 +370,11 @@ class CombatScene:
         for m in self.monsters:
             if m.cooldown_remaining > 0:
                 m.cooldown_remaining = max(0, m.cooldown_remaining - dt)
+
+        # 连击冷却归零（V1.0.4 P3）：3秒未使用近战武器时连击计数器归零
+        self._melee_last_used_time += dt
+        if self._melee_last_used_time >= 3.0 and self.player.combo_counter > 0:
+            self.player.combo_counter = 0
 
         # Buff
         self._update_buffs(dt)
@@ -428,6 +556,9 @@ class CombatScene:
                         if projectile_hit_monster(proj, monster, self.player):
                             self._play_hit_sound(monster)
                             weapon = proj.get('weapon')
+                            # 循伤索敌（V1.0.4 P3）：怪物未识别玩家时向攻击来源移动
+                            if not monster.aggro and monster.is_alive():
+                                monster.set_track_attacker(proj['x'], proj['y'], 1.0)
                             # 精英之弓暴击提示
                             if proj.get('crit_triggered'):
                                 self.toasts.append(make_toast('暴击！'))
@@ -448,6 +579,10 @@ class CombatScene:
     def _update_monsters(self, dt: float) -> None:
         for monster in self.monsters:
             if not monster.is_alive():
+                continue
+
+            # 定身期间怪物不行动（V1.0.4 P3）
+            if monster.is_staggered():
                 continue
 
             if monster.check_phase_transition():
@@ -479,9 +614,11 @@ class CombatScene:
                     if self.audio:
                         self.audio.play_boss_summon()
 
+            # 使用动态索敌范围（V1.0.4 P3 循伤索敌期间×1.5）
+            detect_range = monster.get_current_detect_range()
             in_range = is_in_range(monster.x, monster.y,
                                    self.player.x, self.player.y,
-                                   MONSTER_DETECT_RANGE)
+                                   detect_range)
 
             # 玩家离开索敌范围后重置 aggro，怪物恢复徘徊
             if not in_range and monster.aggro:
@@ -492,8 +629,12 @@ class CombatScene:
                 monster.aggro = True
                 monster._path = None  # 清空徘徊路径，开始追击
 
-            # === 移动：A* 寻路（追击/徘徊） ===
-            if not monster.aggro:
+            # === 移动：A* 寻路（追击/循伤/徘徊） ===
+            if monster.is_tracking_attacker():
+                # 循伤索敌：向攻击来源方向移动（V1.0.4 P3）
+                track_grid = pixel_to_grid(monster.track_attacker_x, monster.track_attacker_y)
+                self._move_with_astar(monster, track_grid, monster.speed, dt)
+            elif not monster.aggro:
                 # 徘徊：走向随机目的地
                 # 徘徊 0.5 px/f（分数累加器）
                 if not hasattr(monster, '_wander_accum'): monster._wander_accum = 0.0
@@ -565,6 +706,17 @@ class CombatScene:
             if monster.ranged_attacker:
                 atk_px = monster.attack_range * TILE_SIZE
                 dist_p = math.sqrt((self.player.x-monster.x)**2 + (self.player.y-monster.y)**2)
+
+                # 骷髅障碍物检测（V1.0.4 P3）：直线上有障碍物时主动寻路靠近而非射击
+                is_skeleton = '骷髅' in monster.name or '流髑' in monster.name
+                has_line_of_sight = True
+                if is_skeleton:
+                    # 检测与玩家直线上是否有障碍物
+                    monster_grid = pixel_to_grid(monster.x, monster.y)
+                    player_grid = pixel_to_grid(self.player.x, self.player.y)
+                    from systems.pathfinding import _line_clear
+                    has_line_of_sight = _line_clear(self.grid, monster_grid, player_grid)
+
                 if dist_p > atk_px * 0.8:
                     nx, ny = move_toward(monster.x, monster.y,
                                          self.player.x, self.player.y, monster.speed)
@@ -579,6 +731,13 @@ class CombatScene:
                     if not self._collides_wall(monster.x, ny): monster.y = ny
                 # 距离<1格时优先逃逸，不攻击
                 if dist_p < TILE_SIZE * 1 and monster.monster_type != 'final_boss':
+                    continue
+                # 骷髅无障碍物时不射击，主动寻路靠近（V1.0.4 P3）
+                if is_skeleton and not has_line_of_sight:
+                    # 主动寻路靠近玩家
+                    self._move_with_astar(monster,
+                        pixel_to_grid(self.player.x, self.player.y),
+                        monster.speed, dt)
                     continue
                 if monster.cooldown_remaining <= 0:
                     dx = self.player.x - monster.x
@@ -965,6 +1124,93 @@ class CombatScene:
         # 技能 toast
         for i, t in enumerate(self.toasts):
             draw_toast(screen, t, get_bold_hud_font(), offset=offset + i)
+
+        # 楼层重置倒计时提示（V1.0.4 P3）
+        if self._reset_countdown > 0:
+            sec = max(1, int(self._reset_countdown) + 1)
+            reset_text = f"{sec}秒后楼层将刷新"
+            font = get_bold_hud_font()
+            text_surface = font.render(reset_text, True, (255, 80, 80))
+            text_rect = text_surface.get_rect(center=(960 // 2, 720 // 2))
+            # 半透明背景
+            bg_surface = pygame.Surface((text_rect.width + 40, text_rect.height + 20), pygame.SRCALPHA)
+            bg_surface.fill((0, 0, 0, 180))
+            screen.blit(bg_surface, (text_rect.x - 20, text_rect.y - 10))
+            screen.blit(text_surface, text_rect)
+
+        # 暂停菜单（V1.0.4 P3）
+        if self._paused:
+            self._draw_pause_menu(screen)
+
+    def _draw_pause_menu(self, screen: pygame.Surface) -> None:
+        """绘制暂停菜单"""
+        # 半透明黑色遮罩
+        overlay = pygame.Surface((960, 720), pygame.SRCALPHA)
+        overlay.fill((0, 0, 0, 150))
+        screen.blit(overlay, (0, 0))
+
+        font_title = get_bold_hud_font()
+        font_btn = pygame.font.Font(None, 36)
+
+        screen_center_x = 960 // 2
+
+        # 标题：游戏暂停（金色加粗中号字体）
+        title_surface = font_title.render("游戏暂停", True, (255, 215, 0))
+        title_rect = title_surface.get_rect(center=(screen_center_x, 200))
+        screen.blit(title_surface, title_rect)
+
+        if self._pause_confirm_reset:
+            # 楼层重置确认弹窗
+            confirm_text = "重置楼层将会消耗一条生命，是否继续？"
+            confirm_surface = font_btn.render(confirm_text, True, (255, 255, 255))
+            confirm_rect = confirm_surface.get_rect(center=(screen_center_x, 330))
+            screen.blit(confirm_surface, confirm_rect)
+
+            # 是按钮
+            btn_width = 200
+            btn_height = 40
+            btn_y_yes = 400
+            pygame.draw.rect(screen, (80, 160, 80),
+                           (screen_center_x - btn_width // 2, btn_y_yes, btn_width, btn_height))
+            yes_surface = font_btn.render("是", True, (255, 255, 255))
+            yes_rect = yes_surface.get_rect(center=(screen_center_x, btn_y_yes + btn_height // 2))
+            screen.blit(yes_surface, yes_rect)
+
+            # 否按钮
+            btn_y_no = 460
+            pygame.draw.rect(screen, (160, 80, 80),
+                           (screen_center_x - btn_width // 2, btn_y_no, btn_width, btn_height))
+            no_surface = font_btn.render("否", True, (255, 255, 255))
+            no_rect = no_surface.get_rect(center=(screen_center_x, btn_y_no + btn_height // 2))
+            screen.blit(no_surface, no_rect)
+        else:
+            # 暂停菜单按钮
+            btn_width = 250
+            btn_height = 50
+
+            # 返回主菜单
+            btn_y_return = 300
+            pygame.draw.rect(screen, (100, 100, 100),
+                           (screen_center_x - btn_width // 2, btn_y_return, btn_width, btn_height))
+            return_surface = font_btn.render("返回主菜单", True, (255, 255, 255))
+            return_rect = return_surface.get_rect(center=(screen_center_x, btn_y_return + btn_height // 2))
+            screen.blit(return_surface, return_rect)
+
+            # 楼层重置
+            btn_y_reset = 370
+            pygame.draw.rect(screen, (140, 100, 60),
+                           (screen_center_x - btn_width // 2, btn_y_reset, btn_width, btn_height))
+            reset_surface = font_btn.render("楼层重置", True, (255, 255, 255))
+            reset_rect = reset_surface.get_rect(center=(screen_center_x, btn_y_reset + btn_height // 2))
+            screen.blit(reset_surface, reset_rect)
+
+            # 继续游戏
+            btn_y_continue = 440
+            pygame.draw.rect(screen, (60, 120, 180),
+                           (screen_center_x - btn_width // 2, btn_y_continue, btn_width, btn_height))
+            continue_surface = font_btn.render("继续游戏", True, (255, 255, 255))
+            continue_rect = continue_surface.get_rect(center=(screen_center_x, btn_y_continue + btn_height // 2))
+            screen.blit(continue_surface, continue_rect)
 
     def _draw_projectiles(self, screen: pygame.Surface) -> None:
         import os
