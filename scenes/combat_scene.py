@@ -87,6 +87,7 @@ class CombatScene:
         self._pause_confirm_reset: bool = False  # 是否显示楼层重置确认弹窗
         self._reset_countdown: float = -1.0       # 楼层重置倒计时
         self._melee_last_used_time: float = 0.0   # 近战武器最后使用时间（连击归零用）
+        self._last_esc_time: float = 0.0          # ESC防抖计时器
 
         self._init_floor()
 
@@ -163,6 +164,11 @@ class CombatScene:
 
         if event.type == pygame.KEYDOWN:
             if event.key == pygame.K_ESCAPE:
+                # ESC防抖：0.3秒内不重复触发
+                now = pygame.time.get_ticks() / 1000.0
+                if now - self._last_esc_time < 0.3:
+                    return None
+                self._last_esc_time = now
                 # 打开暂停菜单
                 self._paused = True
                 self._pause_confirm_reset = False
@@ -187,6 +193,11 @@ class CombatScene:
         """暂停菜单事件处理"""
         if event.type == pygame.KEYDOWN:
             if event.key == pygame.K_ESCAPE:
+                # ESC防抖：0.3秒内不重复触发
+                now = pygame.time.get_ticks() / 1000.0
+                if now - self._last_esc_time < 0.3:
+                    return None
+                self._last_esc_time = now
                 # ESC关闭暂停菜单
                 self._paused = False
                 self._pause_confirm_reset = False
