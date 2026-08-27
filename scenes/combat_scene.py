@@ -162,6 +162,10 @@ class CombatScene:
         if self._paused:
             return self._handle_pause_event(event)
 
+        # 楼层重置倒计时期间，禁止ESC退出（V1.0.4 P3）
+        if self._reset_countdown > 0:
+            return None
+
         if event.type == pygame.KEYDOWN:
             if event.key == pygame.K_ESCAPE:
                 # ESC防抖：0.3秒内不重复触发
