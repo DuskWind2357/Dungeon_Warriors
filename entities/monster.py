@@ -40,6 +40,7 @@ class Monster:
     track_attacker_x: float = 0.0       # 攻击来源X
     track_attacker_y: float = 0.0       # 攻击来源Y
     base_detect_range: float = MONSTER_DETECT_RANGE  # 原始索敌范围
+    speed_boost_timer: float = 0.0      # 速度加成剩余时间（已锁定玩家时触发）
 
     def take_damage(self, damage: int) -> bool:
         """受到伤害（含减免），返回是否死亡"""
@@ -96,14 +97,21 @@ class Monster:
 
     def set_track_attacker(self, src_x: float, src_y: float, duration: float = 1.0) -> None:
         """
-        设置循伤索敌：怪物遭受远程攻击后，
-        主动向攻击来源方向移动，索敌范围×1.5。
+        循伤索敌：怪物遭受远程攻击后：
+        - 未锁定玩家：向攻击来源方向移动，索敌范围×1.5
+        - 已锁定玩家：获得速度×1.5加成
+        BOSS不受影响。
         """
         if self.monster_type in ("head_boss", "final_boss"):
-            return  # BOSS不受影响
-        self.track_attacker_x = src_x
-        self.track_attacker_y = src_y
-        self.track_attacker_timer = duration
+            return
+        if self.aggro:
+            # 已锁定玩家 → 速度加成
+            self.speed_boost_timer = duration
+        else:
+            # 未锁定玩家 → 向攻击来源移动
+            self.track_attacker_x = src_x
+            self.track_attacker_y = src_y
+            self.track_attacker_timer = duration
 
     def is_tracking_attacker(self) -> bool:
         """是否处于循伤索敌状态"""
@@ -114,3 +122,9 @@ class Monster:
         if self.is_tracking_attacker():
             return self.base_detect_range * 1.5
         return self.base_detect_range
+
+    def get_current_speed(self) -> float:
+        """获取当前速度（速度加成期间×1.5）"""
+        if self.speed_boost_timer > 0:
+            return self.speed * 1.5
+        return self.speed

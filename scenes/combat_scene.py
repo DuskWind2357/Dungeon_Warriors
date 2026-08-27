@@ -352,6 +352,7 @@ class CombatScene:
         for m in self.monsters:
             if m.is_alive():
                 m.track_attacker_timer = max(0, m.track_attacker_timer - dt)
+                m.speed_boost_timer = max(0, m.speed_boost_timer - dt)
 
         # 冷却（秒）
         if self.player.attack_cooldown > 0:
@@ -617,10 +618,11 @@ class CombatScene:
                 monster._path = None  # 清空徘徊路径，开始追击
 
             # === 移动：A* 寻路（追击/循伤/徘徊） ===
+            current_speed = monster.get_current_speed()
             if monster.is_tracking_attacker():
                 # 循伤索敌：向攻击来源方向移动（V1.0.4 P3）
                 track_grid = pixel_to_grid(monster.track_attacker_x, monster.track_attacker_y)
-                self._move_with_astar(monster, track_grid, monster.speed, dt)
+                self._move_with_astar(monster, track_grid, current_speed, dt)
             elif not monster.aggro:
                 # 徘徊：走向随机目的地
                 # 徘徊 0.5 px/f（分数累加器）
@@ -634,7 +636,7 @@ class CombatScene:
                 # 追击：走向玩家
                 self._move_with_astar(monster,
                     pixel_to_grid(self.player.x, self.player.y),
-                    monster.speed, dt)
+                    current_speed, dt)
 
             # 环境音（3格内每3秒50%概率）
             if in_range and self.audio:
