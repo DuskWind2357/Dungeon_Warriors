@@ -210,8 +210,9 @@ class CombatScene:
                     self._paused = False
                     self._pause_confirm_reset = False
                     self._reset_countdown = 3.0  # 开始3秒倒计时
-                    # 消耗一条生命
-                    self.revive_system.revives_remaining = max(0, self.revive_system.revives_remaining - 1)
+                    # 消耗一条生命（对应复活次数）
+                    if self.revive_system.revive_count > 0:
+                        self.revive_system.revive_count -= 1
                     return None
 
                 # 否按钮
