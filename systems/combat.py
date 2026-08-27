@@ -1,6 +1,6 @@
 """
 Dungeon Warriors v2.0 — 战斗系统
-武器类型分发、连击、暴击、秒杀、移动限制、伤害减免、击退定身
+武器类型分发、连击、暴击、秒杀、移动限制、伤害减免
 """
 
 import math
@@ -8,32 +8,6 @@ import random
 from config import MONSTER_DETECT_RANGE, TILE_SIZE
 from entities.player import Player
 from entities.monster import Monster
-
-# ================================================================
-# 击退/定身参数（V1.0.4 P3）
-# ================================================================
-# 怪物被玩家击退距离（格 → 像素）
-KNOCKBACK_MONSTER_MELEE = 0.5 * TILE_SIZE       # 普通怪物被近战击退0.5格
-KNOCKBACK_MONSTER_RANGED = 0.8 * TILE_SIZE      # 普通怪物被远程击退0.8格
-KNOCKBACK_ELITE_MELEE = 0.2 * TILE_SIZE         # 精英怪物被近战击退0.2格
-KNOCKBACK_ELITE_RANGED = 0.5 * TILE_SIZE        # 精英怪物被远程击退0.5格
-# BOSS不受击退影响
-
-# 怪物被击退时的定身时间（秒）
-STAGGER_MONSTER_RANGED = 0.3                    # 普通怪物被远程击退定身0.3秒
-STAGGER_ELITE_RANGED = 0.1                      # 精英怪物被远程击退定身0.1秒
-
-# 玩家被怪物击退距离（格 → 像素）
-KNOCKBACK_PLAYER_NORMAL_MELEE = 0.1 * TILE_SIZE   # 被普通怪物近战击退0.1格
-KNOCKBACK_PLAYER_NORMAL_RANGED = 0.3 * TILE_SIZE  # 被普通怪物远程击退0.3格
-KNOCKBACK_PLAYER_ELITE_MELEE = 0.3 * TILE_SIZE    # 被精英怪物近战击退0.3格
-KNOCKBACK_PLAYER_ELITE_RANGED = 0.5 * TILE_SIZE   # 被精英怪物远程击退0.5格
-KNOCKBACK_PLAYER_HEAD_BOSS = 0.8 * TILE_SIZE      # 被头目BOSS击退0.8格
-KNOCKBACK_PLAYER_FINAL_BOSS = 1.0 * TILE_SIZE     # 被首领BOSS击退1.0格
-
-# 玩家被击退时的定身时间（秒）
-STAGGER_PLAYER_HEAD_BOSS = 0.5                    # 被头目BOSS定身0.5秒
-STAGGER_PLAYER_FINAL_BOSS = 1.0                   # 被首领BOSS定身1.0秒
 
 
 def player_melee_attack(player: Player, monsters: list[Monster]) -> list[Monster]:
@@ -96,20 +70,6 @@ def player_melee_attack(player: Player, monsters: list[Monster]) -> list[Monster
                 continue
 
         _deal_damage_to_monster(player, monster, atk, hit_monsters)
-
-    # 击退逻辑（V1.0.4 P3）
-    for monster in hit_monsters:
-        if not monster.is_alive():
-            continue
-        # 计算击退距离
-        if monster.monster_type == "normal":
-            kb_distance = KNOCKBACK_MONSTER_MELEE
-        elif monster.monster_type == "elite":
-            kb_distance = KNOCKBACK_ELITE_MELEE
-        else:
-            kb_distance = 0.0  # BOSS不受击退
-        if kb_distance > 0:
-            monster.apply_knockback(player.x, player.y, kb_distance)
 
     return hit_monsters
 
@@ -218,24 +178,6 @@ def projectile_hit_monster(projectile: dict, monster: Monster,
 
     monster.take_damage(damage)
 
-    # 击退逻辑（V1.0.4 P3）
-    if monster.is_alive():
-        # 计算击退距离和定身时间
-        if monster.monster_type == "normal":
-            kb_distance = KNOCKBACK_MONSTER_RANGED
-            stagger_duration = STAGGER_MONSTER_RANGED
-        elif monster.monster_type == "elite":
-            kb_distance = KNOCKBACK_ELITE_RANGED
-            stagger_duration = STAGGER_ELITE_RANGED
-        else:
-            kb_distance = 0.0
-            stagger_duration = 0.0
-        if kb_distance > 0:
-            # 使用投射物来源作为击退方向（玩家位置）
-            monster.apply_knockback(player.x, player.y, kb_distance)
-        if stagger_duration > 0:
-            monster.apply_stagger(stagger_duration)
-
     return True
 
 
@@ -279,36 +221,6 @@ def monster_attack_player(monster: Monster, player: Player) -> bool:
 
     player.take_damage(monster.attack)
     monster.cooldown_remaining = monster.attack_cooldown
-
-    # 击退/定身逻辑（V1.0.4 P3）
-    # 玩家被怪物击退
-    is_ranged_attack = monster.ranged_attacker
-    if monster.monster_type == "normal":
-        if is_ranged_attack:
-            kb_distance = KNOCKBACK_PLAYER_NORMAL_RANGED
-        else:
-            kb_distance = KNOCKBACK_PLAYER_NORMAL_MELEE
-        stagger_duration = 0.0
-    elif monster.monster_type == "elite":
-        if is_ranged_attack:
-            kb_distance = KNOCKBACK_PLAYER_ELITE_RANGED
-        else:
-            kb_distance = KNOCKBACK_PLAYER_ELITE_MELEE
-        stagger_duration = 0.0
-    elif monster.monster_type == "head_boss":
-        kb_distance = KNOCKBACK_PLAYER_HEAD_BOSS
-        stagger_duration = STAGGER_PLAYER_HEAD_BOSS
-    elif monster.monster_type == "final_boss":
-        kb_distance = KNOCKBACK_PLAYER_FINAL_BOSS
-        stagger_duration = STAGGER_PLAYER_FINAL_BOSS
-    else:
-        kb_distance = 0.0
-        stagger_duration = 0.0
-
-    if kb_distance > 0:
-        player.apply_knockback(monster.x, monster.y, kb_distance)
-    if stagger_duration > 0:
-        player.apply_stagger(stagger_duration)
 
     return True
 

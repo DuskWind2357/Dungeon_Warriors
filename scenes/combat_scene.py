@@ -348,36 +348,10 @@ class CombatScene:
                 self.toasts.append(make_toast("楼层已刷新！"))
             return None
 
-        # 定身计时器更新（V1.0.4 P3）
-        self.player.stagger_timer = max(0, self.player.stagger_timer - dt)
-        self.player.stagger_immune_timer = max(0, self.player.stagger_immune_timer - dt)
+        # 循伤索敌计时器更新（V1.0.4 P3）
         for m in self.monsters:
             if m.is_alive():
-                m.stagger_timer = max(0, m.stagger_timer - dt)
-                m.stagger_immune_timer = max(0, m.stagger_immune_timer - dt)
                 m.track_attacker_timer = max(0, m.track_attacker_timer - dt)
-
-        # 玩家定身期间不处理移动和攻击
-        if self.player.is_staggered():
-            # 仅更新冷却和buff
-            if self.player.attack_cooldown > 0:
-                self.player.attack_cooldown = max(0, self.player.attack_cooldown - dt)
-            if self.player.ranged_cooldown > 0:
-                self.player.ranged_cooldown = max(0, self.player.ranged_cooldown - dt)
-            for m in self.monsters:
-                if m.cooldown_remaining > 0:
-                    m.cooldown_remaining = max(0, m.cooldown_remaining - dt)
-            self._update_buffs(dt)
-            self._update_traps(dt)
-            # Toasts 倒计时
-            for t in self.toasts:
-                t["timer"] -= dt
-            self.toasts = [t for t in self.toasts if t["timer"] > 0]
-            # 投射物继续移动
-            self._update_projectiles()
-            # 怪物继续行动
-            self._update_monsters(dt)
-            return None
 
         # 冷却（秒）
         if self.player.attack_cooldown > 0:
@@ -596,10 +570,6 @@ class CombatScene:
     def _update_monsters(self, dt: float) -> None:
         for monster in self.monsters:
             if not monster.is_alive():
-                continue
-
-            # 定身期间怪物不行动（V1.0.4 P3）
-            if monster.is_staggered():
                 continue
 
             if monster.check_phase_transition():

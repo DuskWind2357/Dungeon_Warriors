@@ -47,10 +47,6 @@ class Player:
     ranged_cooldown: float = 0.0   # 远程冷却（秒）
     speed: int = PLAYER_BASE_SPEED
 
-    # 击退/定身系统（V1.0.4 P3）
-    stagger_immune_timer: float = 0.0   # 定身免疫计时器（5秒内最多一次）
-    stagger_timer: float = 0.0          # 定身剩余时间（无法移动/攻击）
-
     # ================================================================
     # 属性计算
     # ================================================================
@@ -218,40 +214,4 @@ class Player:
     # 击退/定身系统（V1.0.4 P3）
     # ================================================================
 
-    def is_staggered(self) -> bool:
-        """是否处于定身状态"""
-        return self.stagger_timer > 0
 
-    def apply_stagger(self, duration: float) -> None:
-        """
-        应用定身效果（含免疫检查）。
-        规则：每5秒任意实体最多获得一次定身效果，其余自动免疫。
-        """
-        if duration <= 0:
-            return
-        if self.stagger_immune_timer > 0:
-            return  # 免疫期间
-        self.stagger_timer = max(self.stagger_timer, duration)
-        self.stagger_immune_timer = 5.0  # 触发免疫计时
-
-    def apply_knockback(self, src_x: float, src_y: float, distance: float) -> None:
-        """
-        应用击退效果。
-        src_x/src_y: 攻击来源坐标
-        distance: 击退距离（像素，正值表示推开）
-        """
-        if distance <= 0:
-            return
-        dx = self.x - src_x
-        dy = self.y - src_y
-        dist = (dx * dx + dy * dy) ** 0.5
-        if dist < 0.1:
-            # 攻击来源与目标重合，随机方向击退
-            import random
-            angle = random.uniform(0, 2 * 3.14159265)
-            import math
-            self.x += math.cos(angle) * distance
-            self.y += math.sin(angle) * distance
-        else:
-            self.x += (dx / dist) * distance
-            self.y += (dy / dist) * distance
