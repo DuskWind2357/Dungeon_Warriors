@@ -137,11 +137,9 @@ class Monster:
 
     def set_track_attacker(self, src_x: float, src_y: float, duration: float = 1.0) -> None:
         """
-        设置循伤索敌：怪物遭受远程攻击且未识别玩家时，
+        设置循伤索敌：怪物遭受远程攻击后，
         主动向攻击来源方向移动，索敌范围×1.5。
         """
-        if self.aggro:
-            return  # 已识别玩家，无需循伤
         if self.monster_type in ("head_boss", "final_boss"):
             return  # BOSS不受影响
         self.track_attacker_x = src_x

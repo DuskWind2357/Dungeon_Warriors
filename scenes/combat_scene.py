@@ -572,9 +572,9 @@ class CombatScene:
                         if projectile_hit_monster(proj, monster, self.player):
                             self._play_hit_sound(monster)
                             weapon = proj.get('weapon')
-                            # 循伤索敌（V1.0.4 P3）：怪物未识别玩家时向攻击来源移动
-                            if not monster.aggro and monster.is_alive():
-                                monster.set_track_attacker(proj['x'], proj['y'], 1.0)
+                            # 循伤索敌（V1.0.4 P3）：怪物遭受远程攻击后向玩家方向移动
+                            if monster.is_alive():
+                                monster.set_track_attacker(self.player.x, self.player.y, 1.0)
                             # 精英之弓暴击提示
                             if proj.get('crit_triggered'):
                                 self.toasts.append(make_toast('暴击！'))
