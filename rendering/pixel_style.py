@@ -82,11 +82,11 @@ def draw_progress_bar(screen: pygame.Surface, x: int, y: int,
         pygame.draw.rect(screen, fill_color, (x, y, fill_width, height), border_radius=2)
 
 
-def make_toast(text: str, color: tuple = None) -> dict:
+def make_toast(text: str, color: tuple = None, duration: float = 2.0) -> dict:
     """创建一个 toast 消息"""
     return {
         "text": text,
-        "timer": 2.0,      # 2 秒持续
+        "timer": duration,
         "alpha": 255,
         "color": color,
     }

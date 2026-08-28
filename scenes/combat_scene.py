@@ -92,6 +92,7 @@ class CombatScene:
         self._portal_countdown: dict | None = None
         self._portal_toast: dict | None = None
         self._portal_hint: dict | None = None  # 传送门提示
+        self._floor_clear_toast_shown: bool = False  # 楼层通关提示是否已显示
         self.floor_type: str = "battle"
         self._heal_frac: float = 0.0
         self._burn_frac: float = 0.0
@@ -162,6 +163,7 @@ class CombatScene:
 
         self.portal_active = False
         self._floor_clearing = False
+        self._floor_clear_toast_shown = False
         self._trap_timer = 0.0
 
         # 出生点
@@ -1235,6 +1237,13 @@ class CombatScene:
             alive = [m for m in self.monsters if m.is_alive()]
             if not alive:
                 self.room_cleared[self.current_room.room_idx] = True
+                # 楼层通关提示：任意房间完成战斗时检查全楼层
+                if not self._floor_clear_toast_shown and self._is_floor_cleared():
+                    self._floor_clear_toast_shown = True
+                    if self.floor_type not in ("boss", "final_boss"):
+                        self.toasts.append(make_toast(
+                            "当前楼层已完成，传送门已开启",
+                            color=(255, 215, 0), duration=3.0))
 
     def _handle_slime_split(self, monster: Monster) -> None:
         """史莱姆死亡分裂"""
@@ -1399,9 +1408,7 @@ class CombatScene:
         if self.current_floor >= 30:
             return "victory"
         
-        # 显示楼层通关提示（非BOSS楼层）
-        if self.floor_type not in ("boss", "final_boss"):
-            self.toasts.append(make_toast("当前楼层已完成，传送门已开启", color=(255, 215, 0)))
+        # 通关提示已在 _on_monster_killed 中显示（持续3秒）
         
         # 清除全部 Buff
         self.player.buffs.clear()

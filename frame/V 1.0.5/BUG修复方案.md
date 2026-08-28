@@ -437,6 +437,44 @@ def _is_adjacent(self, side1, offset1, side2, offset2):
 
 ---
 
+### BUG14: 传送门距墙壁边缘距离修正
+
+**问题描述**：
+- 所有墙壁嵌入的传送门在刷新时距离墙壁两侧边缘至少6格
+- 原 `PORTAL_MIN_EDGE_DIST = 2` 不满足要求
+
+**修复方案**：
+1. **修改 `config.py`**：
+   - `PORTAL_MIN_EDGE_DIST` 从 `2` 改为 `6`
+   - 影响所有传送门位置生成（出生点传送门、战斗房间传送门、宝藏室传送门）
+
+**涉及文件**：
+- `config.py`
+
+---
+
+### BUG15: 任意房间完成战斗时显示通关提示
+
+**问题描述**：
+- 无论玩家处于哪个房间，完成一个楼层战斗时都应显示金色文字提示"当前楼层已完成，传送门已开启"（持续3秒）
+- 原实现只在通关传送门倒计时5秒后才显示提示
+
+**修复方案**：
+1. **修改 `scenes/combat_scene.py`**：
+   - 新增 `_floor_clear_toast_shown` 标志防止重复显示
+   - 在 `_on_monster_killed` 中标记房间清理后立即调用 `_is_floor_cleared()` 检测
+   - 若楼层已通关且未显示过提示，立即弹出金色toast（持续3秒）
+   - `_on_floor_clear` 中移除重复提示
+
+2. **修改 `rendering/pixel_style.py`**：
+   - `make_toast` 新增 `duration` 参数（默认2.0秒），支持自定义持续时间
+
+**涉及文件**：
+- `scenes/combat_scene.py`
+- `rendering/pixel_style.py`
+
+---
+
 ## 五、风险评估
 
 ### 高风险
