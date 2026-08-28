@@ -1,16 +1,19 @@
 """
-Dungeon Warriors V1.0.2 — 楼层管理器
-怪物个体化生成、楼层分段配置
+Dungeon Warriors V1.0.5 — 楼层管理器
+多房间楼层架构：每个房间是独立的20×15网格，切换时整个画面变化
 """
 
 import random
 import math
-from collections import deque
+from enum import Enum
+from dataclasses import dataclass, field
 from config import (
     MAP_COLS, MAP_ROWS, TILE_SIZE,
     BOSS_FLOORS, FINAL_BOSS_FLOOR,
     MONSTER_SCALE_PER_FLOOR,
     MONSTER_PER_5_FLOORS_HP, MONSTER_PER_5_FLOORS_ATK,
+    PORTAL_MIN_EDGE_DIST, PORTAL_COUNT_MIN, PORTAL_COUNT_MAX,
+    DUNGEON_ROOM_CHANCE, TREASURE_ROOM_CHANCE,
 )
 from entities.monster import Monster
 from data.monsters import (
@@ -18,6 +21,97 @@ from data.monsters import (
     SNOW_ELITE_MONSTERS, HEAD_BOSS_MELEE, HEAD_BOSS_RANGED, FINAL_BOSS,
 )
 
+
+class RoomType(Enum):
+    """房间类型枚举"""
+    SPAWN = "spawn"
+    BATTLE = "battle"
+    TREASURE = "treasure"
+    DUNGEON = "dungeon"
+
+
+@dataclass
+class Portal:
+    """传送门数据类
+    side: 传送门所在的墙壁 ("left", "right", "top", "bottom")
+    offset: 在该墙壁上的偏移位置（从左/上角开始数）
+    """
+    side: str
+    offset: int
+    target_room_idx: int
+    target_side: str
+    target_offset: int
+    is_floor_portal: bool = False  # 通往下一楼层的传送门
+
+
+@dataclass
+class Room:
+    """V1.0.5 房间数据类 — 每个房间是独立的20×15网格"""
+    room_idx: int
+    room_type: RoomType
+    grid: list[list[int]] = field(default_factory=list)
+    portals: list[Portal] = field(default_factory=list)
+    cleared: bool = False
+    has_floor_portal: bool = False
+    spawn_pos: tuple[int, int] = (0, 0)
+    monster_positions: list[tuple[float, float]] = field(default_factory=list)
+
+    @property
+    def center(self) -> tuple[int, int]:
+        return (MAP_COLS // 2, MAP_ROWS // 2)
+
+    def get_walkable_cells(self) -> list[tuple[int, int]]:
+        """返回房间内可行走的格子"""
+        cells = []
+        for row in range(1, MAP_ROWS - 1):
+            for col in range(1, MAP_COLS - 1):
+                if self.grid[row][col] not in (1, 5):
+                    cells.append((col, row))
+        return cells
+
+    def get_portal_at(self, col: int, row: int) -> Portal | None:
+        """获取指定位置的传送门"""
+        for p in self.portals:
+            px, py = self._portal_grid_pos(p)
+            if (col, row) == (px, py):
+                return p
+        return None
+
+    def _portal_grid_pos(self, portal: Portal) -> tuple[int, int]:
+        """计算传送门的网格坐标"""
+        if portal.side == "left":
+            return (0, 1 + portal.offset)
+        elif portal.side == "right":
+            return (MAP_COLS - 1, 1 + portal.offset)
+        elif portal.side == "top":
+            return (1 + portal.offset, 0)
+        elif portal.side == "bottom":
+            return (1 + portal.offset, MAP_ROWS - 1)
+        return (0, 0)
+
+
+@dataclass
+class FloorLayout:
+    """V1.0.5 楼层布局数据类"""
+    rooms: list[Room]
+    current_room_idx: int = 0
+    floor_portal_pos: tuple[int, int] | None = None
+    floor_portal_room_idx: int | None = None
+
+    @property
+    def current_room(self) -> Room:
+        return self.rooms[self.current_room_idx]
+
+    def get_room_by_idx(self, idx: int) -> Room | None:
+        for r in self.rooms:
+            if r.room_idx == idx:
+                return r
+        return None
+
+
+# ============================================================
+# 工具函数
+# ============================================================
 
 def get_floor_type(floor_num: int) -> str:
     if floor_num == FINAL_BOSS_FLOOR:
@@ -28,7 +122,6 @@ def get_floor_type(floor_num: int) -> str:
 
 
 def get_theme(floor_num: int) -> str:
-    """V1.0.4 地图主题：dungeon(1-9) / snow(11-19) / hell(21-29) / boss(10,20,30)"""
     if floor_num in BOSS_FLOORS or floor_num == FINAL_BOSS_FLOOR:
         return "boss"
     if floor_num <= 9:
@@ -38,137 +131,308 @@ def get_theme(floor_num: int) -> str:
     return "hell"
 
 
-def generate_map(cols=MAP_COLS, rows=MAP_ROWS):
-    grid = [[0]*cols for _ in range(rows)]
-    for col in range(cols):
-        grid[0][col] = 1
-        grid[rows-1][col] = 1
-    for row in range(rows):
-        grid[row][0] = 1
-        grid[row][cols-1] = 1
-    # 均匀分布墙壁：将地图分为 3×2 共 6 个区域，每区随机放置 2-6 个墙壁
-    sections = [(2, cols//3, 2, rows//2-1), (cols//3, 2*cols//3, 2, rows//2-1),
-                (2*cols//3, cols-2, 2, rows//2-1),
-                (2, cols//3, rows//2, rows-2), (cols//3, 2*cols//3, rows//2, rows-2),
-                (2*cols//3, cols-2, rows//2, rows-2)]
-    for x1, x2, y1, y2 in sections:
-        for _ in range(random.randint(2, 6)):
-            for _ in range(5):  # 重试
-                col = random.randint(x1, x2)
-                row = random.randint(y1, y2)
-                if abs(col-cols//2) < 3 and abs(row-rows//2) < 3:
-                    continue
-                grid[row][col] = 1
+def _opposite_side(side: str) -> str:
+    return {"left": "right", "right": "left", "top": "bottom", "bottom": "top"}[side]
+
+
+# ============================================================
+# 楼层生成
+# ============================================================
+
+def generate_floor(floor_num: int = 1) -> FloorLayout:
+    """V1.0.5 生成完整楼层布局
+    每个房间是独立的20×15网格
+    """
+    floor_type = get_floor_type(floor_num)
+
+    if floor_type in ("boss", "final_boss"):
+        return _generate_boss_floor(floor_num, floor_type)
+
+    n_battle = random.randint(PORTAL_COUNT_MIN, PORTAL_COUNT_MAX)
+    rooms: list[Room] = []
+
+    spawn_room = Room(room_idx=0, room_type=RoomType.SPAWN)
+    _generate_room_grid(spawn_room)
+    rooms.append(spawn_room)
+
+    for i in range(n_battle):
+        room = Room(room_idx=len(rooms), room_type=RoomType.BATTLE)
+        if random.random() < DUNGEON_ROOM_CHANCE:
+            room.room_type = RoomType.DUNGEON
+        _generate_room_grid(room)
+        rooms.append(room)
+
+    _connect_rooms_with_portals(rooms)
+
+    floor_portal_pos = _place_floor_portal(rooms)
+    floor_portal_room_idx = None
+    if floor_portal_pos:
+        for r in rooms:
+            if r.has_floor_portal:
+                floor_portal_room_idx = r.room_idx
                 break
-    sp = find_spawn_point(grid, cols, rows)
-    for dr in range(-2, 3):
-        for dc in range(-2, 3):
-            sc, sr = sp[0]+dc, sp[1]+dr
-            if 1 <= sc < cols-1 and 1 <= sr < rows-1:
-                grid[sr][sc] = 0
-    _ensure_path(grid, cols, rows, sp[0], sp[1], cols//2, rows//2)
-    return grid
+
+    return FloorLayout(rooms=rooms, current_room_idx=0,
+                       floor_portal_pos=floor_portal_pos,
+                       floor_portal_room_idx=floor_portal_room_idx)
 
 
-def place_traps(grid: list[list[int]], cols: int, rows: int,
-                spawn_pos: tuple[int, int]) -> None:
-    """V1.0.4 地狱主题：10% 可行走地砖变为陷阱（值=2，可行走）。
-    排除出生点 3×3 区域与传送门格。"""
-    sc, sr = spawn_pos
-    pc, pr = cols // 2, rows // 2
-    walkable = []
-    for row in range(1, rows - 1):
-        for col in range(1, cols - 1):
-            if grid[row][col] != 0:
+def _generate_boss_floor(floor_num: int, floor_type: str) -> FloorLayout:
+    """BOSS楼层：只有1个房间"""
+    room = Room(room_idx=0, room_type=RoomType.BATTLE)
+    _generate_room_grid(room)
+    return FloorLayout(rooms=[room], current_room_idx=0)
+
+
+def _generate_room_grid(room: Room) -> None:
+    """为单个房间生成20×15网格
+    值: 0=地板, 1=墙壁, 2=出生点, 3=下一楼层传送门, 4=陷阱, 5=房间传送门
+    """
+    grid = [[1] * MAP_COLS for _ in range(MAP_ROWS)]
+
+    # 清空内部为地板
+    for row in range(1, MAP_ROWS - 1):
+        for col in range(1, MAP_COLS - 1):
+            grid[row][col] = 0
+
+    # 出生点房间：出生点偏左一格，中央留给通关传送门
+    if room.room_type == RoomType.SPAWN:
+        sx, sy = MAP_COLS // 2 - 1, MAP_ROWS // 2
+        grid[sy][sx] = 2
+        room.spawn_pos = (sx, sy)
+
+    room.grid = grid
+
+
+def _add_random_walls(grid: list[list[int]], room: Room,
+                      n_walls_range: tuple[int, int] = (4, 8)) -> None:
+    """在房间内添加随机墙壁"""
+    n_walls = random.randint(*n_walls_range)
+    cx, cy = room.center
+
+    for _ in range(n_walls):
+        for _ in range(10):
+            col = random.randint(2, MAP_COLS - 3)
+            row = random.randint(2, MAP_ROWS - 3)
+            # 不在出生点附近放墙
+            if room.room_type == RoomType.SPAWN:
+                if abs(col - cx) < 3 and abs(row - cy) < 3:
+                    continue
+            # 不在传送门位置放墙
+            if grid[row][col] in (2, 3, 5):
                 continue
-            if abs(col - sc) <= 1 and abs(row - sr) <= 1:
-                continue  # 出生点周边
-            if (col, row) == (pc, pr):
-                continue  # 传送门格
-            walkable.append((col, row))
-    n_traps = int(len(walkable) * 0.10)
-    random.shuffle(walkable)
-    for col, row in walkable[:n_traps]:
-        grid[row][col] = 2
+            grid[row][col] = 1
+            break
 
 
-def find_spawn_point(grid, cols, rows):
-    candidates = []
-    for col in range(2, cols//3):
-        for row in range(2, rows//3):
-            if grid[row][col] == 0:
-                clear = True
-                for dc in range(-1, 2):
-                    for dr in range(-1, 2):
-                        nc, nr = col+dc, row+dr
-                        if 0 <= nc < cols and 0 <= nr < rows and grid[nr][nc] == 1:
-                            clear = False; break
-                    if not clear: break
-                if clear: candidates.append((col, row))
-    if candidates: return random.choice(candidates)
-    for col in range(1, cols-1):
-        for row in range(1, rows-1):
-            if grid[row][col] == 0: return (col, row)
-    return (cols//4, rows//2)
+def _connect_rooms_with_portals(rooms: list[Room]) -> None:
+    """在房间之间建立传送门连接
+    出生点房间有2-4个传送门，分别通往不同的战斗房间
+    战斗房间/副本有概率额外连接宝藏室
+    """
+    spawn_room = rooms[0]
+    battle_rooms = rooms[1:]
+
+    if not battle_rooms:
+        return
+
+    sides = ["right", "bottom", "left", "top"]
+    random.shuffle(sides)
+
+    n_portals = min(len(battle_rooms), len(sides), PORTAL_COUNT_MAX)
+    n_portals = max(n_portals, PORTAL_COUNT_MIN)
+
+    for i in range(n_portals):
+        side = sides[i]
+        battle_room = battle_rooms[i % len(battle_rooms)]
+
+        # 出生点房间的传送门位置
+        offset = random.randint(PORTAL_MIN_EDGE_DIST, 
+                                MAP_COLS - 2 - PORTAL_MIN_EDGE_DIST if side in ("top", "bottom") 
+                                else MAP_ROWS - 2 - PORTAL_MIN_EDGE_DIST)
+
+        # 出生点房间的传送门
+        spawn_portal = Portal(
+            side=side,
+            offset=offset,
+            target_room_idx=battle_room.room_idx,
+            target_side=_opposite_side(side),
+            target_offset=offset
+        )
+        spawn_room.portals.append(spawn_portal)
+
+        # 战斗房间的传送门（双向）
+        target_portal = Portal(
+            side=_opposite_side(side),
+            offset=offset,
+            target_room_idx=spawn_room.room_idx,
+            target_side=side,
+            target_offset=offset
+        )
+        battle_room.portals.append(target_portal)
+
+        # 在网格上放置传送门
+        _place_portal_on_grid(spawn_room, spawn_portal)
+        _place_portal_on_grid(battle_room, target_portal)
+    
+    # 为战斗房间/副本生成宝藏室
+    _generate_treasure_rooms(rooms)
 
 
-def spawn_monsters(grid, cols, rows, spawn_pos, floor_type, floor_num, spawn_mult=1.0):
-    """V1.0.2 怪物生成"""
+def _place_portal_on_grid(room: Room, portal: Portal) -> None:
+    """在房间网格上放置传送门（值=5）"""
+    col, row = room._portal_grid_pos(portal)
+    if 0 <= col < MAP_COLS and 0 <= row < MAP_ROWS:
+        room.grid[row][col] = 5
+
+
+def _is_portal_adjacent(portal1: Portal, portal2: Portal) -> bool:
+    """检查两个传送门是否相邻"""
+    # 同一墙壁上的传送门
+    if portal1.side == portal2.side:
+        return abs(portal1.offset - portal2.offset) <= 1
+    
+    # 相邻墙壁
+    adjacent_walls = {
+        "left": ["top", "bottom"],
+        "right": ["top", "bottom"],
+        "top": ["left", "right"],
+        "bottom": ["left", "right"]
+    }
+    
+    if portal2.side in adjacent_walls.get(portal1.side, []):
+        # 检查角落位置
+        if portal1.side == "left" and portal2.side == "top":
+            return portal1.offset == 0 and portal2.offset == 0
+        elif portal1.side == "left" and portal2.side == "bottom":
+            return portal1.offset == MAP_ROWS - 2 and portal2.offset == MAP_COLS - 2
+        elif portal1.side == "right" and portal2.side == "top":
+            return portal1.offset == 0 and portal2.offset == 0
+        elif portal1.side == "right" and portal2.side == "bottom":
+            return portal1.offset == MAP_ROWS - 2 and portal2.offset == MAP_COLS - 2
+        elif portal1.side == "top" and portal2.side == "left":
+            return portal1.offset == 0 and portal2.offset == 0
+        elif portal1.side == "top" and portal2.side == "right":
+            return portal1.offset == MAP_COLS - 2 and portal2.offset == 0
+        elif portal1.side == "bottom" and portal2.side == "left":
+            return portal1.offset == 0 and portal2.offset == MAP_ROWS - 2
+        elif portal1.side == "bottom" and portal2.side == "right":
+            return portal1.offset == MAP_COLS - 2 and portal2.offset == MAP_ROWS - 2
+    
+    return False
+
+
+def _generate_treasure_rooms(rooms: list[Room]) -> None:
+    """为战斗房间/副本生成宝藏室"""
+    from config import TREASURE_ROOM_CHANCE_BATTLE, TREASURE_ROOM_DUNGEON_CHANCE
+    
+    for room in rooms[1:]:  # 跳过出生点房间
+        # 确定宝藏室刷新概率
+        if room.room_type == RoomType.DUNGEON:
+            chance = TREASURE_ROOM_DUNGEON_CHANCE
+        elif room.room_type == RoomType.BATTLE:
+            chance = TREASURE_ROOM_CHANCE_BATTLE
+        else:
+            continue
+        
+        if random.random() >= chance:
+            continue
+        
+        # 创建宝藏室
+        treasure_room = Room(room_idx=len(rooms), room_type=RoomType.TREASURE)
+        _generate_room_grid(treasure_room)
+        rooms.append(treasure_room)
+        
+        # 确保宝藏室传送门与出生点房间传送门不相邻
+        used_sides = set()
+        used_offsets = {}
+        
+        # 收集房间已有的传送门信息
+        for portal in room.portals:
+            used_sides.add(portal.side)
+            if portal.side not in used_offsets:
+                used_offsets[portal.side] = []
+            used_offsets[portal.side].append(portal.offset)
+        
+        # 选择一个与现有传送门不相邻的位置
+        available_sides = ["left", "right", "top", "bottom"]
+        random.shuffle(available_sides)
+        
+        treasure_portal = None
+        for side in available_sides:
+            if side in used_sides:
+                continue
+            
+            # 计算可用的偏移位置
+            max_offset = MAP_COLS - 2 - PORTAL_MIN_EDGE_DIST if side in ("top", "bottom") else MAP_ROWS - 2 - PORTAL_MIN_EDGE_DIST
+            possible_offsets = list(range(PORTAL_MIN_EDGE_DIST, max_offset + 1))
+            
+            # 移除与现有传送门相邻的位置
+            for existing_side, existing_offsets in used_offsets.items():
+                if existing_side == side:
+                    for offset in existing_offsets:
+                        if offset in possible_offsets:
+                            possible_offsets.remove(offset)
+                        if offset - 1 in possible_offsets:
+                            possible_offsets.remove(offset - 1)
+                        if offset + 1 in possible_offsets:
+                            possible_offsets.remove(offset + 1)
+            
+            if possible_offsets:
+                offset = random.choice(possible_offsets)
+                treasure_portal = Portal(
+                    side=side,
+                    offset=offset,
+                    target_room_idx=treasure_room.room_idx,
+                    target_side=_opposite_side(side),
+                    target_offset=offset,
+                    is_floor_portal=False
+                )
+                break
+        
+        if treasure_portal:
+            room.portals.append(treasure_portal)
+            
+            # 宝藏室的传送门（双向）
+            treasure_return_portal = Portal(
+                side=_opposite_side(treasure_portal.side),
+                offset=treasure_portal.offset,
+                target_room_idx=room.room_idx,
+                target_side=treasure_portal.side,
+                target_offset=treasure_portal.offset,
+                is_floor_portal=False
+            )
+            treasure_room.portals.append(treasure_return_portal)
+            
+            # 在网格上放置传送门
+            _place_portal_on_grid(room, treasure_portal)
+            _place_portal_on_grid(treasure_room, treasure_return_portal)
+
+
+def _place_floor_portal(rooms: list[Room]) -> tuple[int, int] | None:
+    """在出生点房间正中央放置通往下一楼层的传送门"""
+    spawn_room = rooms[0] if rooms else None
+    if not spawn_room:
+        return None
+
+    px = MAP_COLS // 2
+    py = MAP_ROWS // 2
+    spawn_room.grid[py][px] = 3
+    spawn_room.has_floor_portal = True
+    return (px, py)
+
+
+# ============================================================
+# 怪物生成
+# ============================================================
+
+def spawn_monsters_for_room(room: Room, floor_num: int,
+                            spawn_mult: float = 1.0) -> list[Monster]:
+    """为指定房间生成怪物"""
     monsters = []
-    sc, sr = spawn_pos
-    valid = []
-    for col in range(1, cols-1):
-        for row in range(1, rows-1):
-            if grid[row][col] == 0:
-                if math.sqrt((col-sc)**2+(row-sr)**2) > 5:
-                    valid.append((col, row))
-    if not valid:
-        for col in range(1, cols-1):
-            for row in range(1, rows-1):
-                if grid[row][col] == 0: valid.append((col, row))
-    random.shuffle(valid)
-    pi = [0]
-
     scale = MONSTER_SCALE_PER_FLOOR ** (floor_num - 1)
     fb = (floor_num - 1) // 5
 
-    def make_m(mdef, mtype):
-        if pi[0] >= len(valid): return None
-        col, row = valid[pi[0]]; pi[0] += 1
-        px = col*TILE_SIZE + TILE_SIZE//2
-        py = row*TILE_SIZE + TILE_SIZE//2
-        if mtype in ("normal", "elite"):
-            hp = int(mdef["hp"]*scale) + fb*MONSTER_PER_5_FLOORS_HP
-            atk = int(mdef["atk"]*scale) + fb*MONSTER_PER_5_FLOORS_ATK
-        else:
-            hp, atk = mdef["hp"], mdef["atk"]
-        return Monster(name=mdef["name"], monster_type=mtype,
-                       hp=hp, max_hp=hp, attack=atk,
-                       attack_range=mdef["range"], attack_cooldown=mdef["cd"],
-                       ranged_attacker=mdef.get("ranged", False),
-                       speed=mdef["speed"], x=float(px), y=float(py))
-
-    if floor_type == "final_boss":
-        fb_data = FINAL_BOSS
-        px = cols//2*TILE_SIZE + TILE_SIZE//2
-        py = rows//2*TILE_SIZE + TILE_SIZE//2
-        m = Monster(name=fb_data["name"], monster_type="final_boss",
-                    hp=fb_data["hp"], max_hp=fb_data["hp"],
-                    attack=fb_data["atk_p1"], attack_range=fb_data["range"],
-                    attack_cooldown=fb_data["cd_p1"], speed=fb_data["speed_p1"],
-                    x=float(px), y=float(py))
-        monsters.append(m)
-        return monsters
-
-    if floor_type == "boss":
-        md = random.choice(HEAD_BOSS_MELEE)
-        rd = random.choice(HEAD_BOSS_RANGED)
-        for d in [md, rd]:
-            m = make_m(d, "head_boss")
-            if m: monsters.append(m)
-        return monsters
-
-    # Battle floor — V1.0.4 固定刷怪表
     if floor_num <= 4:
         n_count, e_count = 6, 2
     elif floor_num <= 9:
@@ -181,7 +445,43 @@ def spawn_monsters(grid, cols, rows, spawn_pos, floor_type, floor_num, spawn_mul
     nc = max(1, int(n_count * spawn_mult))
     ec = max(0, int(e_count * spawn_mult))
 
-    # 主题精英池：地牢(1-9)=僵尸/骷髅系 雪地(11-19)=冰霜系 地狱(21-29)=全部非雪地
+    # 获取可行走位置（排除出生点和传送门）
+    valid = []
+    sx, sy = room.spawn_pos if room.room_type == RoomType.SPAWN else room.center
+    for row in range(1, MAP_ROWS - 1):
+        for col in range(1, MAP_COLS - 1):
+            if room.grid[row][col] not in (1, 5):
+                if math.sqrt((col - sx)**2 + (row - sy)**2) > 3:
+                    valid.append((col, row))
+
+    if not valid:
+        for row in range(1, MAP_ROWS - 1):
+            for col in range(1, MAP_COLS - 1):
+                if room.grid[row][col] not in (1, 5):
+                    valid.append((col, row))
+
+    random.shuffle(valid)
+    pos_idx = [0]
+
+    def make_monster(mdef, mtype):
+        if pos_idx[0] >= len(valid):
+            return None
+        col, row = valid[pos_idx[0]]
+        pos_idx[0] += 1
+        px = col * TILE_SIZE + TILE_SIZE // 2
+        py = row * TILE_SIZE + TILE_SIZE // 2
+        if mtype in ("normal", "elite"):
+            hp = int(mdef["hp"] * scale) + fb * MONSTER_PER_5_FLOORS_HP
+            atk = int(mdef["atk"] * scale) + fb * MONSTER_PER_5_FLOORS_ATK
+        else:
+            hp, atk = mdef["hp"], mdef["atk"]
+        return Monster(name=mdef["name"], monster_type=mtype,
+                      hp=hp, max_hp=hp, attack=atk,
+                      attack_range=mdef["range"], attack_cooldown=mdef["cd"],
+                      ranged_attacker=mdef.get("ranged", False),
+                      speed=mdef["speed"], x=float(px), y=float(py))
+
+    # 精英怪池
     if floor_num <= 9:
         elite_pool = [e for e in ELITE_MONSTERS if e["name"] in ("精英僵尸", "精英骷髅")]
     elif floor_num <= 19:
@@ -191,48 +491,93 @@ def spawn_monsters(grid, cols, rows, spawn_pos, floor_type, floor_num, spawn_mul
         elite_pool = [e for e in ELITE_MONSTERS if e["name"] not in snow_names]
 
     natural = [m for m in NORMAL_MONSTERS if m["name"] in NATURAL_NORMAL]
-    for _ in range(nc):
-        m = make_m(random.choice(natural), "normal")
-        if m: monsters.append(m)
-    for _ in range(ec):
-        m = make_m(random.choice(elite_pool), "elite")
-        if m: monsters.append(m)
 
-    # V1.0.4 史莱姆上限：自然刷新 ≤ 总数 1/4，超额替换为非史莱姆（总数不变）
+    for _ in range(nc):
+        m = make_monster(random.choice(natural), "normal")
+        if m:
+            monsters.append(m)
+    for _ in range(ec):
+        m = make_monster(random.choice(elite_pool), "elite")
+        if m:
+            monsters.append(m)
+
+    # 史莱姆数量限制
     slime_n = sum(1 for m in monsters if '史莱姆' in m.name)
     max_slimes = len(monsters) // 4
     non_slime_pool = [m for m in NORMAL_MONSTERS if m["name"] in NATURAL_NORMAL and '史莱姆' not in m["name"]]
     if non_slime_pool:
         for i in range(len(monsters)):
-            if slime_n <= max_slimes: break
+            if slime_n <= max_slimes:
+                break
             if '史莱姆' in monsters[i].name:
                 replacement = random.choice(non_slime_pool)
                 old = monsters[i]
-                monsters[i] = Monster(name=replacement["name"], monster_type="normal",
-                                      hp=int(replacement["hp"]*scale)+fb*MONSTER_PER_5_FLOORS_HP,
-                                      max_hp=int(replacement["hp"]*scale)+fb*MONSTER_PER_5_FLOORS_HP,
-                                      attack=int(replacement["atk"]*scale)+fb*MONSTER_PER_5_FLOORS_ATK,
-                                      attack_range=replacement["range"],
-                                      attack_cooldown=replacement["cd"],
-                                      ranged_attacker=replacement.get("ranged", False),
-                                      speed=replacement["speed"],
-                                      x=old.x, y=old.y)
+                monsters[i] = Monster(
+                    name=replacement["name"], monster_type="normal",
+                    hp=int(replacement["hp"] * scale) + fb * MONSTER_PER_5_FLOORS_HP,
+                    max_hp=int(replacement["hp"] * scale) + fb * MONSTER_PER_5_FLOORS_HP,
+                    attack=int(replacement["atk"] * scale) + fb * MONSTER_PER_5_FLOORS_ATK,
+                    attack_range=replacement["range"],
+                    attack_cooldown=replacement["cd"],
+                    ranged_attacker=replacement.get("ranged", False),
+                    speed=replacement["speed"],
+                    x=old.x, y=old.y)
                 slime_n -= 1
+
     return monsters
 
 
-def _ensure_path(grid, cols, rows, fc, fr, tc, tr):
-    visited = set(); q = deque(); q.append((fc, fr)); visited.add((fc, fr))
-    while q:
-        c, r = q.popleft()
-        if c == tc and r == tr: return
-        for dc, dr in [(0,1),(0,-1),(1,0),(-1,0)]:
-            nc, nr = c+dc, r+dr
-            if 0 <= nc < cols and 0 <= nr < rows and (nc,nr) not in visited and grid[nr][nc] == 0:
-                visited.add((nc,nr)); q.append((nc,nr))
-    dx, dy = tc-fc, tr-fr
-    steps = max(abs(dx), abs(dy))*2
-    for i in range(steps+1):
-        t = i/steps if steps else 0
-        c, r = int(fc+dx*t), int(fr+dy*t)
-        if 0 <= c < cols and 0 <= r < rows: grid[r][c] = 0
+def spawn_monsters_boss(grid: list[list[int]], cols: int, rows: int,
+                       floor_type: str, floor_num: int) -> list[Monster]:
+    """BOSS楼层怪物生成（保持V1.0.4逻辑）"""
+    monsters = []
+
+    if floor_type == "final_boss":
+        fb_data = FINAL_BOSS
+        px = cols // 2 * TILE_SIZE + TILE_SIZE // 2
+        py = rows // 2 * TILE_SIZE + TILE_SIZE // 2
+        m = Monster(name=fb_data["name"], monster_type="final_boss",
+                   hp=fb_data["hp"], max_hp=fb_data["hp"],
+                   attack=fb_data["atk_p1"], attack_range=fb_data["range"],
+                   attack_cooldown=fb_data["cd_p1"], speed=fb_data["speed_p1"],
+                   x=float(px), y=float(py))
+        monsters.append(m)
+        return monsters
+
+    if floor_type == "boss":
+        md = random.choice(HEAD_BOSS_MELEE)
+        rd = random.choice(HEAD_BOSS_RANGED)
+
+        def make_boss(mdef):
+            px = cols // 2 * TILE_SIZE + TILE_SIZE // 2
+            py = rows // 2 * TILE_SIZE + TILE_SIZE // 2
+            return Monster(name=mdef["name"], monster_type="head_boss",
+                          hp=mdef["hp"], max_hp=mdef["hp"],
+                          attack=mdef["atk"], attack_range=mdef["range"],
+                          attack_cooldown=mdef["cd"],
+                          ranged_attacker=mdef.get("ranged", False),
+                          speed=mdef["speed"], x=float(px), y=float(py))
+
+        for d in [md, rd]:
+            m = make_boss(d)
+            monsters.append(m)
+        return monsters
+
+    return monsters
+
+
+def place_traps(room: Room) -> None:
+    """地狱主题：10% 可行走地砖变为陷阱（值=4，可行走）"""
+    sc, sr = room.spawn_pos
+    walkable = []
+    for row in range(1, MAP_ROWS - 1):
+        for col in range(1, MAP_COLS - 1):
+            if room.grid[row][col] != 0:
+                continue
+            if (col, row) == (sc, sr):
+                continue
+            walkable.append((col, row))
+    n_traps = int(len(walkable) * 0.10)
+    random.shuffle(walkable)
+    for col, row in walkable[:n_traps]:
+        room.grid[row][col] = 4

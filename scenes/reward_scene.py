@@ -25,11 +25,13 @@ class RewardScene:
     """楼层通关奖励场景 — 四选一"""
 
     def __init__(self, player: Player, backpack: list,
-                 revive_system, current_floor: int) -> None:
+                 revive_system, current_floor: int,
+                 auto_destroy: bool = False) -> None:
         self.player = player
         self.backpack = backpack
         self.revive_system = revive_system
         self.current_floor = current_floor
+        self.auto_destroy = auto_destroy
 
         # 生成4个奖励选项
         self.options: list[tuple[str, str, object | None]] = []
@@ -206,11 +208,83 @@ class RewardScene:
                 add_item(self.backpack, item)
             self.revealed_text = f"获得：{reward[0].name} ×{len(reward)}"
         elif isinstance(reward, (Weapon, Armor, Consumable)):
-            add_item(self.backpack, reward)
-            self.revealed_text = f"获得：{reward.name}"
+            # 检查是否需要自动装备
+            old_item = None
+            if isinstance(reward, Weapon):
+                if self.options[self.selected][0].startswith("近战"):
+                    old_item = self.player.melee_weapon
+                    if self._should_auto_equip_weapon(reward, old_item):
+                        self.player.melee_weapon = reward
+                        self.revealed_text = f"获得并装备：{reward.name}"
+                    else:
+                        add_item(self.backpack, reward)
+                        self.revealed_text = f"获得：{reward.name}"
+                elif self.options[self.selected][0].startswith("远程"):
+                    old_item = self.player.ranged_weapon
+                    if self._should_auto_equip_weapon(reward, old_item):
+                        self.player.ranged_weapon = reward
+                        self.revealed_text = f"获得并装备：{reward.name}"
+                    else:
+                        add_item(self.backpack, reward)
+                        self.revealed_text = f"获得：{reward.name}"
+            elif isinstance(reward, Armor):
+                old_item = self.player.armor
+                if self._should_auto_equip_armor(reward, old_item):
+                    self.player.armor = reward
+                    self.revealed_text = f"获得并装备：{reward.name}"
+                else:
+                    add_item(self.backpack, reward)
+                    self.revealed_text = f"获得：{reward.name}"
+            else:
+                add_item(self.backpack, reward)
+                self.revealed_text = f"获得：{reward.name}"
+            
+            # 检查是否需要销毁低级装备
+            if self.auto_destroy and old_item:
+                self._destroy_low_level_gear(old_item)
 
         self.confirmed = True
         self._reveal_timer = 1.5  # 1.5秒展示时间
+
+    def _should_auto_equip_weapon(self, new_weapon: Weapon, old_weapon: Weapon | None) -> bool:
+        """判断是否应该自动装备新武器"""
+        if old_weapon is None:
+            return True
+        
+        # T5和特殊视为同级
+        new_level = new_weapon.tier if new_weapon.tier < 5 else 5
+        old_level = old_weapon.tier if old_weapon.tier < 5 else 5
+        
+        return new_level > old_level
+
+    def _should_auto_equip_armor(self, new_armor: Armor, old_armor: Armor | None) -> bool:
+        """判断是否应该自动装备新护甲"""
+        if old_armor is None:
+            return True
+        
+        # T5和特殊视为同级
+        new_level = new_armor.tier if new_armor.tier < 5 else 5
+        old_level = old_armor.tier if old_armor.tier < 5 else 5
+        
+        return new_level > old_level
+
+    def _destroy_low_level_gear(self, old_item) -> None:
+        """销毁低级装备"""
+        if old_item is None:
+            return
+        
+        # T5和特殊视为同级
+        if hasattr(old_item, 'tier'):
+            old_level = old_item.tier if old_item.tier < 5 else 5
+        else:
+            return
+        
+        # 检查背包中是否有更低级的装备
+        from systems.inventory import remove_item
+        for i, item in enumerate(self.backpack):
+            if item is old_item:
+                remove_item(self.backpack, i)
+                break
 
     def update(self, dt: float) -> str | None:
         """展示揭示文字后延迟返回"""

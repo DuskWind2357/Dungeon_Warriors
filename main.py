@@ -12,6 +12,7 @@ import pygame
 from config import (
     WINDOW_WIDTH, WINDOW_HEIGHT, FPS, COLOR_BG,
     MAX_REVIVES, REVIVE_COUNTDOWN_SEC, GAME_OVER_DELAY_SEC,
+    AUTO_DESTROY_LOW_LEVEL_GEAR,
 )
 from entities.player import Player
 from systems.revive_system import ReviveSystem
@@ -56,6 +57,7 @@ class Game:
         self.current_floor: int = 1
         self.monsters_killed: int = 0
         self.difficulty: str = "easy"  # 默认难度
+        self.auto_destroy: bool = AUTO_DESTROY_LOW_LEVEL_GEAR  # 低级装备自动销毁开关
 
         # 场景对象
         self.menu_scene = None
@@ -113,6 +115,7 @@ class Game:
             self.revive_system = data["revive_system"]
             self.current_floor = data["current_floor"]
             self.monsters_killed = data["monsters_killed"]
+            self.auto_destroy = data.get("auto_destroy", AUTO_DESTROY_LOW_LEVEL_GEAR)
             # 确保玩家有武器
             if self.player.melee_weapon is None:
                 self.player.melee_weapon = WEAPON_BY_NAME["铜剑"]
@@ -123,7 +126,7 @@ class Game:
                 from scenes.reward_scene import RewardScene
                 self.reward_scene = RewardScene(
                     self.player, self.backpack, self.revive_system,
-                    self.current_floor
+                    self.current_floor, self.auto_destroy
                 )
                 self.scene = "reward"
                 return
@@ -236,6 +239,7 @@ class Game:
             result = self.settings_scene.handle_event(event)
             if result == "menu":
                 self.difficulty = self.settings_scene.get_difficulty()
+                self.auto_destroy = self.settings_scene.get_auto_destroy()
                 self._init_menu()
                 self.scene = "menu"
 
@@ -300,11 +304,11 @@ class Game:
                 self.current_floor = self.combat_scene.current_floor
                 save_game(self.player, self.backpack, self.revive_system,
                           self.current_floor, self.monsters_killed,
-                          scene_state="reward")
+                          scene_state="reward", auto_destroy=self.auto_destroy)
                 from scenes.reward_scene import RewardScene
                 self.reward_scene = RewardScene(
                     self.player, self.backpack, self.revive_system,
-                    self.current_floor
+                    self.current_floor, self.auto_destroy
                 )
                 self.scene = "reward"
 

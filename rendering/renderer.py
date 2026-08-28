@@ -74,7 +74,7 @@ def _load_icon(filename: str, size: int) -> pygame.Surface | None:
     return None
 
 
-# 地图主题贴图路径映射（V1.0.4）
+# 地图主题贴图路径映射（V1.0.5）
 _THEME_TEXTURE_PATHS: dict[str, dict[str, str]] = {
     "dungeon": {
         "spawn":     "icon/block/地牢/出生点.webp",
@@ -83,6 +83,7 @@ _THEME_TEXTURE_PATHS: dict[str, dict[str, str]] = {
         "wall":      "icon/block/地牢/墙壁.png",
         "wall_var1": "icon/block/地牢/墙壁变种1.webp",
         "wall_var2": "icon/block/地牢/墙壁变种2.webp",
+        "portal":    "icon/block/传送门.webp",
     },
     "snow": {
         "spawn":     "icon/block/雪地/玩家出生点.png",
@@ -90,6 +91,7 @@ _THEME_TEXTURE_PATHS: dict[str, dict[str, str]] = {
         "floor_var": "icon/block/雪地/地砖变种.webp",
         "wall":      "icon/block/雪地/墙壁.webp",
         "wall_var1": "icon/block/雪地/墙壁变种.webp",
+        "portal":    "icon/block/传送门.webp",
     },
     "hell": {
         "spawn":     "icon/block/地狱/出生点.png",
@@ -97,12 +99,29 @@ _THEME_TEXTURE_PATHS: dict[str, dict[str, str]] = {
         "floor_var": "icon/block/地狱/地砖变种.png",
         "wall":      "icon/block/地狱/墙壁.png",
         "trap":      "icon/block/地狱/陷阱.webp",
+        "portal":    "icon/block/传送门.webp",
     },
     "boss": {
         "spawn":     "icon/block/头目/BlockSprite_lodestone.webp",
         "floor":     "icon/block/头目/头目楼层地砖.webp",
         "wall":      "icon/block/头目/头目楼层墙壁.png",
+        "portal":    "icon/block/传送门.webp",
     },
+}
+
+# V1.0.5 特殊房间贴图
+_SPECIAL_ROOM_TEXTURES: dict[str, dict[str, str]] = {
+    "dungeon_room": {
+        "floor": "icon/block/夹层/地砖.webp",
+        "wall":  "icon/block/夹层/墙壁.webp",
+    },
+    "treasure_room": {
+        "floor": "icon/block/宝藏室/BlockSprite_block-of-gold.webp",
+        "wall":  "icon/block/宝藏室/BlockSprite_block-of-netherite.webp",
+    },
+    "portal": "icon/block/传送门.webp",
+    "portal_active": "icon/block/传送门激活中.webp",
+    "floor_portal": "icon/block/传送门.webp",
 }
 
 # 各主题变种概率（V1.0.4）
@@ -153,8 +172,11 @@ def draw_map(screen: pygame.Surface, grid: list[list[int]],
              portal_pos: tuple[int, int],
              portal_active: bool,
              in_spawn_zone: bool,
-             theme: str = "dungeon") -> None:
-    """绘制地图网格（V1.0.4 主题贴图版本）"""
+             theme: str = "dungeon",
+             floor_layout=None,
+             current_room=None) -> None:
+    """绘制地图网格（V1.0.5 多房间版本）
+    grid 就是当前房间的独立20×15网格"""
     _load_map_textures()
     if theme not in _THEME_TEXTURE_PATHS:
         theme = "dungeon"
@@ -162,13 +184,15 @@ def draw_map(screen: pygame.Surface, grid: list[list[int]],
     probs = _THEME_VARIANTS.get(theme, {})
     sc, sr = spawn_pos
 
+    room_type_val = current_room.room_type.value if current_room else None
+
     for row in range(len(grid)):
         for col in range(len(grid[row])):
             x = col * TILE_SIZE
             y = row * TILE_SIZE
 
-            # 出生点方格使用主题专属图片，不参与变种
-            if (col, row) == (sc, sr):
+            # 出生点方格只在出生点房间使用主题专属图片
+            if (col, row) == (sc, sr) and room_type_val == "spawn":
                 tex = texs.get("spawn")
                 if tex:
                     screen.blit(tex, (x, y))
@@ -179,37 +203,64 @@ def draw_map(screen: pygame.Surface, grid: list[list[int]],
             cell = grid[row][col]
             if cell == 1:
                 # 墙壁变种（固定种子，避免闪烁）
-                key = "wall"
-                v1 = probs.get("wall_var1", 0)
-                v2 = probs.get("wall_var2", 0)
-                if v1 or v2:
-                    rng = random.Random(row * 1000 + col)
-                    r = rng.random()
-                    if r < v1:
-                        key = "wall_var1"
-                    elif r < v1 + v2:
-                        key = "wall_var2"
-                tex = texs.get(key) or texs.get("wall")
+                if room_type_val == "dungeon":
+                    special = _SPECIAL_ROOM_TEXTURES.get("dungeon_room", {})
+                    tex = _load_special_texture(special.get("wall"))
+                elif room_type_val == "treasure":
+                    special = _SPECIAL_ROOM_TEXTURES.get("treasure_room", {})
+                    tex = _load_special_texture(special.get("wall"))
+                else:
+                    key = "wall"
+                    v1 = probs.get("wall_var1", 0)
+                    v2 = probs.get("wall_var2", 0)
+                    if v1 or v2:
+                        rng = random.Random(row * 1000 + col)
+                        r = rng.random()
+                        if r < v1:
+                            key = "wall_var1"
+                        elif r < v1 + v2:
+                            key = "wall_var2"
+                    tex = texs.get(key) or texs.get("wall")
                 if tex:
                     screen.blit(tex, (x, y))
                 else:
                     pygame.draw.rect(screen, COLOR_WALL, (x, y, TILE_SIZE, TILE_SIZE))
             elif cell == 2:
+                # 出生点（由算法设置）
+                tex = texs.get("spawn")
+                if tex:
+                    screen.blit(tex, (x, y))
+                else:
+                    pygame.draw.rect(screen, COLOR_SPAWN[:3], (x, y, TILE_SIZE, TILE_SIZE))
+            elif cell == 3:
+                # 通往下一楼层的传送门
+                _draw_floor_portal(screen, x, y, portal_active)
+            elif cell == 4:
                 # 陷阱格（地狱主题）
                 tex = texs.get("trap") or texs.get("floor")
                 if tex:
                     screen.blit(tex, (x, y))
                 else:
                     pygame.draw.rect(screen, COLOR_FLOOR, (x, y, TILE_SIZE, TILE_SIZE))
+            elif cell == 5:
+                # V1.0.5 传送门墙壁
+                _draw_portal_wall(screen, x, y, texs)
             else:
                 # 地板变种（固定种子，避免闪烁）
-                key = "floor"
-                fv = probs.get("floor_var", 0)
-                if fv:
-                    rng = random.Random(row * 1000 + col + 50000)
-                    if rng.random() < fv:
-                        key = "floor_var"
-                tex = texs.get(key) or texs.get("floor")
+                if room_type_val == "dungeon":
+                    special = _SPECIAL_ROOM_TEXTURES.get("dungeon_room", {})
+                    tex = _load_special_texture(special.get("floor"))
+                elif room_type_val == "treasure":
+                    special = _SPECIAL_ROOM_TEXTURES.get("treasure_room", {})
+                    tex = _load_special_texture(special.get("floor"))
+                else:
+                    key = "floor"
+                    fv = probs.get("floor_var", 0)
+                    if fv:
+                        rng = random.Random(row * 1000 + col + 50000)
+                        if rng.random() < fv:
+                            key = "floor_var"
+                    tex = texs.get(key) or texs.get("floor")
                 if tex:
                     screen.blit(tex, (x, y))
                 else:
@@ -223,25 +274,64 @@ def draw_map(screen: pygame.Surface, grid: list[list[int]],
         s.fill((0, 100, 0, 80))
         screen.blit(s, rect.topleft)
 
-    # 绘制传送门
-    px, py = portal_pos
-    portal_x = px * TILE_SIZE + TILE_SIZE // 2
-    portal_y = py * TILE_SIZE + TILE_SIZE // 2
-    color = COLOR_PORTAL if portal_active else (60, 60, 80)
-    radius = TILE_SIZE // 2 - 2 if portal_active else TILE_SIZE // 3
+    # 绘制通往下一楼层的传送门
+    if portal_pos:
+        px, py = portal_pos
+        portal_x = px * TILE_SIZE + TILE_SIZE // 2
+        portal_y = py * TILE_SIZE + TILE_SIZE // 2
+        _draw_floor_portal(screen, px * TILE_SIZE, py * TILE_SIZE, portal_active)
 
-    # 脉冲效果
-    if portal_active:
+
+def _load_special_texture(path: str | None) -> pygame.Surface | None:
+    """加载特殊房间贴图"""
+    if not path:
+        return None
+    full = resource_path(path)
+    if not os.path.exists(full):
+        return None
+    try:
+        img = pygame.image.load(full).convert_alpha()
+        return pygame.transform.scale(img, (TILE_SIZE, TILE_SIZE))
+    except Exception:
+        return None
+
+
+def _draw_portal_wall(screen: pygame.Surface, x: int, y: int,
+                      texs: dict) -> None:
+    """绘制V1.0.5传送门墙壁（只用贴图，无额外渲染）"""
+    # 先绘制地板贴图作为背景
+    floor_tex = texs.get("floor")
+    if floor_tex:
+        screen.blit(floor_tex, (x, y))
+    else:
+        pygame.draw.rect(screen, COLOR_FLOOR, (x, y, TILE_SIZE, TILE_SIZE))
+    
+    # 再绘制传送门贴图
+    portal_tex = _load_special_texture(_SPECIAL_ROOM_TEXTURES.get("portal"))
+    if portal_tex:
+        screen.blit(portal_tex, (x, y))
+    else:
+        pygame.draw.rect(screen, (120, 0, 200), (x, y, TILE_SIZE, TILE_SIZE))
+
+
+def _draw_floor_portal(screen: pygame.Surface, x: int, y: int, active: bool) -> None:
+    """绘制通往下一楼层的传送门（未激活=深灰偏黑，激活=紫色脉冲）"""
+    color = (140, 50, 200) if active else (40, 40, 50)
+    radius = TILE_SIZE // 2 - 2 if active else TILE_SIZE // 3
+    center_x = x + TILE_SIZE // 2
+    center_y = y + TILE_SIZE // 2
+
+    if active:
         import time
-        pulse = (math.sin(time.time() * 3) + 1) / 2  # 0~1
+        pulse = (math.sin(time.time() * 3) + 1) / 2
         radius += int(pulse * 4)
         alpha = int(150 + pulse * 105)
         glow = pygame.Surface((radius * 3, radius * 3), pygame.SRCALPHA)
-        pygame.draw.circle(glow, (*COLOR_PORTAL[:3], alpha),
-                           (radius * 3 // 2, radius * 3 // 2), radius * 1.5)
-        screen.blit(glow, (portal_x - radius * 3 // 2, portal_y - radius * 3 // 2))
+        pygame.draw.circle(glow, (*color[:3], alpha),
+                         (radius * 3 // 2, radius * 3 // 2), radius * 1.5)
+        screen.blit(glow, (center_x - radius * 3 // 2, center_y - radius * 3 // 2))
 
-    pygame.draw.circle(screen, color, (portal_x, portal_y), radius)
+    pygame.draw.circle(screen, color, (center_x, center_y), radius)
 
 
 def draw_player(screen: pygame.Surface, player: Player) -> None:

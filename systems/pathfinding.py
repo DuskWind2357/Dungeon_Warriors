@@ -1,6 +1,6 @@
 """
 Dungeon Warriors — A* 网格寻路
-追击/徘徊共用，20×15 地图 < 0.5ms/次
+V1.0.5 多房间系统适配
 """
 
 import heapq
@@ -15,10 +15,11 @@ def astar(grid: list[list[int]],
           goal: tuple[int, int]) -> list[tuple[int, int]] | None:
     """
     A* 寻路。返回网格路径 [(col,row), ...] 或 None。
+    V1.0.5: 传送门(值=5)视为墙壁
     """
     if start == goal:
         return [start]
-    if grid[goal[1]][goal[0]] == 1:  # 目标不可达
+    if grid[goal[1]][goal[0]] in (1, 5):  # 目标不可达（墙壁或传送门）
         return None
 
     open_set = []
@@ -40,7 +41,7 @@ def astar(grid: list[list[int]],
         for dc, dr in DIRS:
             nc, nr = current[0] + dc, current[1] + dr
             if 0 <= nc < MAP_COLS and 0 <= nr < MAP_ROWS:
-                if grid[nr][nc] == 1:
+                if grid[nr][nc] in (1, 5):  # 墙壁或传送门不可通过
                     continue
                 neighbor = (nc, nr)
                 tentative = g_score.get(current, 999) + 1
@@ -74,7 +75,9 @@ def simplify_path(grid: list[list[int]],
 
 def _line_clear(grid: list[list[int]],
                 a: tuple[int, int], b: tuple[int, int]) -> bool:
-    """Bresenham 直线是否无墙"""
+    """Bresenham 直线是否无墙
+    V1.0.5: 传送门(值=5)视为墙壁
+    """
     x0, y0 = a
     x1, y1 = b
     dx = abs(x1 - x0)
@@ -84,7 +87,7 @@ def _line_clear(grid: list[list[int]],
     err = dx - dy
     cx, cy = x0, y0
     while cx != x1 or cy != y1:
-        if grid[cy][cx] == 1:
+        if grid[cy][cx] in (1, 5):  # 墙壁或传送门遮挡视线
             return False
         e2 = 2 * err
         if e2 > -dy:
@@ -106,9 +109,11 @@ def grid_to_pixel(col: int, row: int) -> tuple[float, float]:
 
 
 def random_walkable(grid: list[list[int]]) -> tuple[int, int] | None:
-    """随机返回一个可行走格"""
+    """随机返回一个可行走格
+    V1.0.5: 传送门(值=5)不可行走
+    """
     import random
     candidates = [(c, r) for r in range(1, MAP_ROWS - 1)
                   for c in range(1, MAP_COLS - 1)
-                  if grid[r][c] == 0]
+                  if grid[r][c] not in (1, 5)]
     return random.choice(candidates) if candidates else None

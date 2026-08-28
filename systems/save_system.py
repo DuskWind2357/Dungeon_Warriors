@@ -45,13 +45,15 @@ def save_game(player: Player, backpack: list,
               revive_system: ReviveSystem,
               current_floor: int,
               monsters_killed: int,
-              scene_state: str = "combat") -> None:
+              scene_state: str = "combat",
+              auto_destroy: bool = False) -> None:
     """保存游戏到 JSON 文件"""
     data = {
         "version": SAVE_VERSION,
         "current_floor": current_floor,
         "monsters_killed": monsters_killed,
         "scene_state": scene_state,
+        "auto_destroy": auto_destroy,
         "revive": revive_system.to_dict(),
         "player": _serialize_player(player),
         "backpack": _serialize_backpack(backpack),
@@ -92,6 +94,7 @@ def load_game() -> dict | None:
             "current_floor": data.get("current_floor", 1),
             "monsters_killed": data.get("monsters_killed", 0),
             "scene_state": data.get("scene_state", "combat"),
+            "auto_destroy": data.get("auto_destroy", False),
         }
     except (json.JSONDecodeError, KeyError, TypeError,
             ValueError, AttributeError, OSError):

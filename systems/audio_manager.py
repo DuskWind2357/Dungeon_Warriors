@@ -48,6 +48,7 @@ class AudioManager:
     def _monster_key(self, name: str) -> str:
         if "僵尸" in name and "精英" not in name: return "zombie"
         if "精英僵尸" in name: return "zombie"
+        if "冰霜僵尸" in name: return "zombie"
         if "骷髅" in name and "精英" not in name: return "skeleton"
         if "精英骷髅" in name: return "skeleton"
         if "流髑" in name: return "skeleton"
@@ -92,6 +93,12 @@ class AudioManager:
                     self._sounds[key][sub] = self._load_files(sp)
             # 根目录文件
             self._sounds[key]["_root"] = self._load_files(dp)
+
+        # V1.0.5 传送门音效
+        portal_dir = os.path.join(base, "portal")
+        if os.path.exists(portal_dir):
+            self._sounds["portal"] = {"_root": self._load_files(portal_dir)}
+
         print(f"[Audio] {sum(len(v) for k in self._sounds for v in self._sounds[k].values())} sounds")
 
     def _load_files(self, path):
@@ -221,3 +228,18 @@ class AudioManager:
     def set_volume(self, v): self._volume = max(0, min(1, v))
     @property
     def is_enabled(self): return self._enabled
+
+    # ================================================================
+    # V1.0.5 传送门音效
+    # ================================================================
+    def play_portal_proximity(self):
+        """传送门靠近音效"""
+        self._play_root("portal", "portal", "portal_proximity")
+
+    def play_portal_trigger(self):
+        """传送触发音效"""
+        self._play_root("portal", "trigger", "portal_trigger")
+
+    def play_portal_travel(self):
+        """传送完成音效"""
+        self._play_root("portal", "travel", "portal_travel")
