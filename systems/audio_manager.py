@@ -273,6 +273,14 @@ class AudioManager:
         pygame.mixer.music.stop()
         self._current_bgm = ""
 
+    def ensure_menu_bgm(self) -> None:
+        """确保主菜单BGM在播放；若已在播放则保持原进度，不从头开始"""
+        if not self._enabled or not self._bgm_enabled:
+            return
+        if pygame.mixer.music.get_busy():
+            return
+        self.play_menu_bgm()
+
     def fadeout_bgm(self, ms: int = 1000) -> None:
         """淡出停止BGM（默认1秒过渡）"""
         if pygame.mixer.music.get_busy():

@@ -78,13 +78,17 @@ class Game:
     # 菜单 / 新游戏 / 继续
     # ================================================================
 
-    def _init_menu(self) -> None:
+    def _init_menu(self, restart_bgm: bool = True) -> None:
         """初始化菜单场景"""
         from scenes.menu_scene import MenuScene
         self.menu_scene = MenuScene()
         self.menu_scene.refresh_labels(save_exists())
-        # 每次进入菜单从头循环播放BGM
-        self.audio.play_menu_bgm()
+        if restart_bgm:
+            # 每次进入菜单（初次进入/从战斗返回等）从头循环播放BGM
+            self.audio.play_menu_bgm()
+        else:
+            # 设置界面属于主菜单的一部分：返回时不打断、不从头播放BGM
+            self.audio.ensure_menu_bgm()
 
     def _new_game(self) -> None:
         """开始新游戏"""
@@ -257,7 +261,7 @@ class Game:
                 self.difficulty = self.settings_scene.get_difficulty()
                 self.auto_destroy = self.settings_scene.get_auto_destroy()
                 self.audio.set_bgm_enabled(self.settings_scene.get_music_on())
-                self._init_menu()
+                self._init_menu(restart_bgm=False)
                 self.scene = "menu"
 
         elif self.scene == "combat" and self.combat_scene:
