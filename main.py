@@ -156,6 +156,9 @@ class Game:
         self.player.buffs.clear()
         self.player.status_effects.clear()
         self.player._burn_dmg = 0
+        # 清除楼层布局缓存（死亡后重新生成地图）
+        if self.combat_scene:
+            self.combat_scene._floor_layout_cache.clear()
         if self.revive_system.consume_revive():
             self.scene = "death"
         else:
@@ -166,6 +169,8 @@ class Game:
         """复活玩家：HP 回满，装备保留，楼层重置"""
         if self.combat_scene:
             self.player.current_hp = self.player.total_max_hp()
+            # 复活时清除楼层缓存，重新生成地图
+            self.combat_scene._floor_layout_cache.clear()
             self.combat_scene._init_floor()
         self.scene = "combat"
 

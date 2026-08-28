@@ -233,7 +233,25 @@ def draw_map(screen: pygame.Surface, grid: list[list[int]],
                 else:
                     pygame.draw.rect(screen, COLOR_SPAWN[:3], (x, y, TILE_SIZE, TILE_SIZE))
             elif cell == 3:
-                # 通往下一楼层的传送门
+                # 通往下一楼层的传送门（先绘制地板贴图作为背景）
+                if room_type_val == "dungeon":
+                    special = _SPECIAL_ROOM_TEXTURES.get("dungeon_room", {})
+                    tex = _load_special_texture(special.get("floor"))
+                elif room_type_val == "treasure":
+                    special = _SPECIAL_ROOM_TEXTURES.get("treasure_room", {})
+                    tex = _load_special_texture(special.get("floor"))
+                else:
+                    key = "floor"
+                    fv = probs.get("floor_var", 0)
+                    if fv:
+                        rng = random.Random(row * 1000 + col + 50000)
+                        if rng.random() < fv:
+                            key = "floor_var"
+                    tex = texs.get(key) or texs.get("floor")
+                if tex:
+                    screen.blit(tex, (x, y))
+                else:
+                    pygame.draw.rect(screen, COLOR_FLOOR, (x, y, TILE_SIZE, TILE_SIZE))
                 _draw_floor_portal(screen, x, y, portal_active)
             elif cell == 4:
                 # 陷阱格（地狱主题）

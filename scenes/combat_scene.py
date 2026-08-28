@@ -103,6 +103,9 @@ class CombatScene:
         self._last_esc_time: float = 0.0
         self._floor_clearing: bool = False
 
+        # 楼层布局缓存（除非死亡/重置，否则地图结构不变）
+        self._floor_layout_cache: dict[int, FloorLayout] = {}
+
         self._init_floor()
 
     def _init_floor(self) -> None:
@@ -137,19 +140,22 @@ class CombatScene:
             self.room_cleared = {}
             self.grid[self.spawn_pos[1]][self.spawn_pos[0]] = 2
         else:
-            # V1.0.5 战斗楼层：每个房间是独立的20×15网格
-            self.floor_layout = generate_floor(self.current_floor)
+            # V1.0.5 战斗楼层：检查缓存，有则使用缓存，无则生成新布局
+            if self.current_floor in self._floor_layout_cache:
+                self.floor_layout = self._floor_layout_cache[self.current_floor]
+            else:
+                self.floor_layout = generate_floor(self.current_floor)
+                self._floor_layout_cache[self.current_floor] = self.floor_layout
+            
             self.current_room = self.floor_layout.current_room
             self.grid = self.current_room.grid
             self.spawn_pos = self.current_room.spawn_pos
 
-            # 初始化房间怪物状态
+            # 初始化房间怪物状态（保留已清理状态）
             self.room_monsters = {}
-            self.room_cleared = {}
             self._room_spawned = {}
             for room in self.floor_layout.rooms:
                 self.room_monsters[room.room_idx] = []
-                self.room_cleared[room.room_idx] = False
                 self._room_spawned[room.room_idx] = False
 
         self.portal_active = False
@@ -414,6 +420,9 @@ class CombatScene:
             self._reset_countdown -= dt
             if self._reset_countdown <= 0:
                 self._reset_countdown = -1.0
+                # 手动重置时清除当前楼层缓存，重新生成地图
+                if self.current_floor in self._floor_layout_cache:
+                    del self._floor_layout_cache[self.current_floor]
                 self._init_floor()
                 self.toasts.append(make_toast("楼层已刷新！"))
             return None
@@ -572,7 +581,7 @@ class CombatScene:
 
         active_portal = nearby_portal or standing_on_portal
 
-        # 检查是否是宝藏室传送门且未完成战斗
+        # 检查是否是宝藏室传送门
         is_treasure_portal = False
         if active_portal:
             target_room = self.floor_layout.get_room_by_idx(active_portal.target_room_idx)
@@ -589,8 +598,8 @@ class CombatScene:
                         self._portal_countdown = None
                     return None
 
-        # 显示传送门提示
-        if active_portal and not active_portal.is_floor_portal and not is_treasure_portal:
+        # 显示传送门提示（普通传送门和已解锁的宝藏室传送门都可交互）
+        if active_portal and not active_portal.is_floor_portal:
             if self._portal_timer < 0:
                 # 显示紫色提示"按F键传送"
                 self._portal_hint = make_toast("按F键传送", color=(200, 100, 255))
@@ -612,8 +621,8 @@ class CombatScene:
                 self._portal_target = None
                 self._portal_countdown = None
 
-        # 处理F键传送（房间间传送门，不包括被封印的宝藏室传送门）
-        if active_portal and not active_portal.is_floor_portal and not is_treasure_portal and pygame.key.get_pressed()[pygame.K_f]:
+        # 处理F键传送（房间间传送门，包括已解锁的宝藏室传送门）
+        if active_portal and not active_portal.is_floor_portal and pygame.key.get_pressed()[pygame.K_f]:
             if self._portal_timer < 0:
                 self._portal_timer = 0.0
                 self._portal_target = active_portal
@@ -623,10 +632,12 @@ class CombatScene:
         # 更新传送倒计时
         if self._portal_timer >= 0 and self._portal_target:
             self._portal_timer += dt
-            sec = max(1, int(PORTAL_TRAVEL_DELAY) - int(self._portal_timer))
-            self._portal_countdown = make_toast(f"{sec} 秒后传送......", color=(100, 255, 100))
 
             if self._portal_timer >= PORTAL_TRAVEL_DELAY:
+                self._portal_timer = -1.0
+                self._portal_target = None
+                self._portal_hint = None
+                self._portal_countdown = None
                 self._complete_portal_travel()
 
         # 检查通往下一楼层的传送门（需要站在上面+楼层已清）
