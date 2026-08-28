@@ -557,7 +557,7 @@ def draw_toast(screen: pygame.Surface, toast: dict | None,
     if font is None:
         font = _get_default_font()
     if color is None:
-        color = toast.get("color", COLOR_HP_BAR)
+        color = toast.get("color") or COLOR_HP_BAR
 
     alpha = int(255 * min(1.0, toast["timer"] / 0.5))
     text_surf = font.render(toast["text"], True, color)
