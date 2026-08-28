@@ -83,6 +83,8 @@ class Game:
         from scenes.menu_scene import MenuScene
         self.menu_scene = MenuScene()
         self.menu_scene.refresh_labels(save_exists())
+        # 每次进入菜单从头循环播放BGM
+        self.audio.play_menu_bgm()
 
     def _new_game(self) -> None:
         """开始新游戏"""
@@ -140,6 +142,7 @@ class Game:
 
     def _start_combat(self) -> None:
         """启动战斗场景"""
+        self.audio.fadeout_bgm()  # 离开菜单，淡出BGM
         from scenes.combat_scene import CombatScene
         self.combat_scene = CombatScene(
             self.player, self.backpack, self.revive_system,

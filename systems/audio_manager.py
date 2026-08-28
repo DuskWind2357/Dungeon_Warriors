@@ -28,6 +28,10 @@ class AudioManager:
         self._volume: float = 0.7
         # 环境音计时器（按怪物个体）
         self._ambient_timers: dict[int, float] = {}
+        # BGM 状态（与音效独立，便于后续扩展）
+        self._bgm_enabled: bool = True
+        self._bgm_volume: float = 0.5
+        self._current_bgm: str = ""  # 当前播放的BGM文件路径
 
     def initialize(self):
         try:
@@ -243,3 +247,49 @@ class AudioManager:
     def play_portal_travel(self):
         """传送完成音效"""
         self._play_root("portal", "travel", "portal_travel")
+
+    # ================================================================
+    # BGM 背景音乐（使用 pygame.mixer.music，与音效互不干扰）
+    # ================================================================
+    def play_menu_bgm(self) -> None:
+        """播放主菜单BGM（循环播放，从头开始）"""
+        if not self._enabled or not self._bgm_enabled:
+            return
+        bgm_path = resource_path("music/大厅BGM.mp3")
+        if not os.path.exists(bgm_path):
+            print(f"[Audio] BGM not found: {bgm_path}")
+            return
+        try:
+            pygame.mixer.music.load(bgm_path)
+            pygame.mixer.music.set_volume(self._bgm_volume)
+            pygame.mixer.music.play(-1)  # -1 = 无限循环
+            self._current_bgm = bgm_path
+        except pygame.error as e:
+            print(f"[Audio] BGM load failed: {e}")
+
+    def stop_bgm(self) -> None:
+        """立即停止BGM"""
+        pygame.mixer.music.stop()
+        self._current_bgm = ""
+
+    def fadeout_bgm(self, ms: int = 1000) -> None:
+        """淡出停止BGM（默认1秒过渡）"""
+        if pygame.mixer.music.get_busy():
+            pygame.mixer.music.fadeout(ms)
+        self._current_bgm = ""
+
+    def set_bgm_volume(self, v: float) -> None:
+        """设置BGM音量（0.0~1.0）"""
+        self._bgm_volume = max(0.0, min(1.0, v))
+        if pygame.mixer.music.get_busy():
+            pygame.mixer.music.set_volume(self._bgm_volume)
+
+    def toggle_bgm(self) -> None:
+        """切换BGM开关"""
+        self._bgm_enabled = not self._bgm_enabled
+        if not self._bgm_enabled:
+            self.stop_bgm()
+
+    @property
+    def bgm_enabled(self) -> bool:
+        return self._bgm_enabled

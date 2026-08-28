@@ -490,5 +490,39 @@ def _is_adjacent(self, side1, offset1, side2, offset2):
 
 ---
 
+### BUG16: 主菜单背景音乐
+
+**问题描述**：
+- 主菜单页面需要添加背景音乐
+- 每次进入主菜单从头循环播放
+- 音频文件：`music/大厅BGM.mp3`
+- 需与现有音效体系不冲突，为后续游戏内BGM和设置开关做准备
+
+**修复方案**：
+1. **修改 `systems/audio_manager.py`**：
+   - 新增实例变量：`_bgm_enabled`、`_bgm_volume`、`_current_bgm`
+   - 使用 `pygame.mixer.music` 播放BGM（与 `pygame.mixer.Sound` 音效互不干扰）
+   - 新增方法：
+     - `play_menu_bgm()` — 加载并循环播放大厅BGM
+     - `stop_bgm()` — 立即停止BGM
+     - `fadeout_bgm(ms=1000)` — 淡出停止BGM
+     - `set_bgm_volume(v)` — 设置BGM音量
+     - `toggle_bgm()` — 切换BGM开关
+   - 所有BGM方法内部检查 `_bgm_enabled` 标志
+
+2. **修改 `main.py`**：
+   - `_init_menu()` 调用 `self.audio.play_menu_bgm()` 每次进入菜单从头播放
+   - `_start_combat()` 调用 `self.audio.fadeout_bgm()` 离开菜单时淡出
+
+**涉及文件**：
+- `systems/audio_manager.py`
+- `main.py`
+
+---
+
+## 六、测试计划
+
+---
+
 **方案制定时间**: 2026年8月28日
 **方案制定人**: Dusk_Wind
