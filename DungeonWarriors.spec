@@ -10,6 +10,7 @@ a = Analysis(
         ('font.otf', '.'),
         ('icon', 'icon'),
         ('sounds', 'sounds'),
+        ('music', 'music'),
     ],
     hiddenimports=[],
     hookspath=[],
