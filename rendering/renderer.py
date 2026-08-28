@@ -123,6 +123,8 @@ _SPECIAL_ROOM_TEXTURES: dict[str, dict[str, str]] = {
     "portal": "icon/block/传送门.webp",
     "portal_active": "icon/block/传送门激活中.webp",
     "dungeon_portal": "icon/block/BlockSprite_end-gateway.webp",  # 副本传送门
+    "floor_portal_inactive": "icon/block/传送门激活器.webp",  # 通关传送门（未激活）
+    "floor_portal_active": "icon/block/传送门.webp",  # 通关传送门（已激活）
     "floor_portal": "icon/block/传送门.webp",
 }
 
@@ -263,15 +265,20 @@ def draw_map(screen: pygame.Surface, grid: list[list[int]],
                 else:
                     pygame.draw.rect(screen, COLOR_FLOOR, (x, y, TILE_SIZE, TILE_SIZE))
             elif cell == 5:
-                # V1.0.5 传送门墙壁（根据目标房间类型选择贴图）
+                # V1.0.5 传送门墙壁（根据目标房间类型或当前房间类型选择贴图）
                 portal_type = "portal"
                 if current_room and floor_layout:
                     for p in current_room.portals:
                         pcol, prow = current_room._portal_grid_pos(p)
                         if (col, row) == (pcol, prow):
-                            target_room = floor_layout.get_room_by_idx(p.target_room_idx)
-                            if target_room and target_room.room_type == RoomType.DUNGEON:
+                            # 当前房间是副本 → 所有传送门用副本贴图
+                            if current_room.room_type == RoomType.DUNGEON:
                                 portal_type = "dungeon_portal"
+                            else:
+                                # 目标房间是副本 → 用副本贴图
+                                target_room = floor_layout.get_room_by_idx(p.target_room_idx)
+                                if target_room and target_room.room_type == RoomType.DUNGEON:
+                                    portal_type = "dungeon_portal"
                             break
                 _draw_portal_wall(screen, x, y, texs, portal_type)
             else:
@@ -352,12 +359,18 @@ def _draw_portal_wall(screen: pygame.Surface, x: int, y: int,
 
 
 def _draw_floor_portal(screen: pygame.Surface, x: int, y: int, active: bool) -> None:
-    """绘制通往下一楼层的传送门（使用传送门贴图，激活=紫色脉冲光效）"""
-    portal_tex = _load_special_texture(_SPECIAL_ROOM_TEXTURES.get("floor_portal"))
-    if portal_tex:
-        screen.blit(portal_tex, (x, y))
+    """绘制通往下一楼层的传送门
+    未激活：传送门激活器贴图（暗色）
+    已激活：传送门贴图 + 紫色脉冲光效
+    """
+    if active:
+        tex = _load_special_texture(_SPECIAL_ROOM_TEXTURES.get("floor_portal_active"))
     else:
-        color = (140, 50, 200) if active else (40, 40, 50)
+        tex = _load_special_texture(_SPECIAL_ROOM_TEXTURES.get("floor_portal_inactive"))
+    if tex:
+        screen.blit(tex, (x, y))
+    else:
+        color = (140, 50, 200) if active else (60, 60, 70)
         radius = TILE_SIZE // 2 - 2 if active else TILE_SIZE // 3
         center_x = x + TILE_SIZE // 2
         center_y = y + TILE_SIZE // 2

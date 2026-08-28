@@ -287,16 +287,53 @@ def _is_adjacent(self, side1, offset1, side2, offset2):
 
 **问题描述**：
 - 通向副本的传送门贴图须使用 `BlockSprite_end-gateway.webp`
-- 原实现未区分目标房间类型
+- 副本房间返回出生点的传送门也须使用副本传送门贴图
+- 原实现只检查目标房间类型，未检查当前房间类型
 
 **修复方案**：
 1. **修改 `rendering/renderer.py`**：
    - `_SPECIAL_ROOM_TEXTURES` 新增 `dungeon_portal` 键
-   - `draw_map()` 中 cell==5 路径：查找传送门目标房间类型
+   - `draw_map()` 中 cell==5 路径：优先检查当前房间是否为副本（`current_room.room_type == DUNGEON`），是则所有传送门用副本贴图；否则检查目标房间类型
    - `_draw_portal_wall()` 新增 `portal_type` 参数，根据类型选贴图
 
 2. **新增导入**：
    - `renderer.py` 导入 `RoomType`
+
+**涉及文件**：
+- `rendering/renderer.py`
+
+---
+
+### BUG10: 宝藏室传送门相邻墙壁限制
+
+**问题描述**：
+- 所有副本、战斗房间内宝藏室传送门和返回传送门不能位于相邻的两面墙上
+- 原实现只跳过同一面墙，未检查相邻墙壁
+
+**修复方案**：
+1. **修改 `systems/floor_manager.py`**：
+   - 新增 `_ADJACENT_WALLS` 映射：`left↔top/bottom`, `right↔top/bottom`, `top↔left/right`, `bottom↔left/right`
+   - `blocked_sides` = 已有传送门的墙壁 ∪ 相邻墙壁
+   - 宝藏室传送门只能选择不在 `blocked_sides` 中的墙壁
+
+**涉及文件**：
+- `systems/floor_manager.py`
+
+---
+
+### BUG11: 通关传送门贴图分态显示
+
+**问题描述**：
+- 初始时通关传送门位置应显示 `传送门激活器.webp`
+- 通关后切换为 `传送门.webp` + 紫色脉冲光效
+- 原实现未使用传送门激活器贴图
+
+**修复方案**：
+1. **修改 `rendering/renderer.py`**：
+   - `_SPECIAL_ROOM_TEXTURES` 新增 `floor_portal_inactive`（`传送门激活器.webp`）和 `floor_portal_active`（`传送门.webp`）
+   - `_draw_floor_portal()` 根据 `active` 参数选择不同贴图：
+     - `active=False`：显示传送门激活器贴图
+     - `active=True`：显示传送门贴图 + 紫色脉冲光效
 
 **涉及文件**：
 - `rendering/renderer.py`

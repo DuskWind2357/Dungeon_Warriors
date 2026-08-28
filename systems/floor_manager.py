@@ -343,7 +343,7 @@ def _generate_treasure_rooms(rooms: list[Room]) -> None:
         _generate_room_grid(treasure_room)
         rooms.append(treasure_room)
         
-        # 确保宝藏室传送门与出生点房间传送门不相邻
+        # 确保宝藏室传送门与出生点房间传送门不相邻（不在同一面墙或相邻墙上）
         used_sides = set()
         used_offsets = {}
         
@@ -354,13 +354,26 @@ def _generate_treasure_rooms(rooms: list[Room]) -> None:
                 used_offsets[portal.side] = []
             used_offsets[portal.side].append(portal.offset)
         
+        # 相邻墙壁映射
+        _ADJACENT_WALLS = {
+            "left": {"top", "bottom"},
+            "right": {"top", "bottom"},
+            "top": {"left", "right"},
+            "bottom": {"left", "right"},
+        }
+        
+        # 禁止使用的墙壁 = 已有传送门的墙壁 + 相邻墙壁
+        blocked_sides = set(used_sides)
+        for side in used_sides:
+            blocked_sides |= _ADJACENT_WALLS.get(side, set())
+        
         # 选择一个与现有传送门不相邻的位置
         available_sides = ["left", "right", "top", "bottom"]
         random.shuffle(available_sides)
         
         treasure_portal = None
         for side in available_sides:
-            if side in used_sides:
+            if side in blocked_sides:
                 continue
             
             # 计算可用的偏移位置
