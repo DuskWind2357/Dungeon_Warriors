@@ -177,6 +177,14 @@ class RewardScene:
             return 0
         if isinstance(reward, list):
             return len(reward)
+        if isinstance(reward, (Weapon, Armor)):
+            if self._reward_will_auto_equip():
+                # 自动替换：被替换装备开启销毁则占0 / 关闭保留则占1；无旧装备占0
+                if not self.auto_destroy and self._old_item() is not None:
+                    return 1
+                return 0
+            # 不触发替换：奖励本身入背包占1
+            return 1
         return 1
 
     def _can_confirm(self) -> bool:
@@ -208,40 +216,30 @@ class RewardScene:
                 add_item(self.backpack, item)
             self.revealed_text = f"获得：{reward[0].name} ×{len(reward)}"
         elif isinstance(reward, (Weapon, Armor, Consumable)):
-            # 检查是否需要自动装备
-            old_item = None
-            if isinstance(reward, Weapon):
-                if self.options[self.selected][0].startswith("近战"):
-                    old_item = self.player.melee_weapon
-                    if self._should_auto_equip_weapon(reward, old_item):
-                        self.player.melee_weapon = reward
-                        self.revealed_text = f"获得并装备：{reward.name}"
+            # 检查是否需要自动装备（奖励等级更高时替换）
+            if isinstance(reward, (Weapon, Armor)):
+                if self._reward_will_auto_equip():
+                    # 先取被替换的旧装备（在覆盖槽位之前）
+                    replaced = self._old_item()
+                    # 自动装备到对应槽位
+                    if isinstance(reward, Weapon):
+                        if self.options[self.selected][0].startswith("近战"):
+                            self.player.melee_weapon = reward
+                        elif self.options[self.selected][0].startswith("远程"):
+                            self.player.ranged_weapon = reward
                     else:
-                        add_item(self.backpack, reward)
-                        self.revealed_text = f"获得：{reward.name}"
-                elif self.options[self.selected][0].startswith("远程"):
-                    old_item = self.player.ranged_weapon
-                    if self._should_auto_equip_weapon(reward, old_item):
-                        self.player.ranged_weapon = reward
-                        self.revealed_text = f"获得并装备：{reward.name}"
-                    else:
-                        add_item(self.backpack, reward)
-                        self.revealed_text = f"获得：{reward.name}"
-            elif isinstance(reward, Armor):
-                old_item = self.player.armor
-                if self._should_auto_equip_armor(reward, old_item):
-                    self.player.armor = reward
+                        self.player.armor = reward
                     self.revealed_text = f"获得并装备：{reward.name}"
+                    # 被替换装备去向：开启销毁则丢弃；关闭则放入背包
+                    if not self.auto_destroy and replaced is not None:
+                        add_item(self.backpack, replaced)
                 else:
+                    # 等级相等（或非装备）不替换，奖励直接入背包
                     add_item(self.backpack, reward)
                     self.revealed_text = f"获得：{reward.name}"
             else:
                 add_item(self.backpack, reward)
                 self.revealed_text = f"获得：{reward.name}"
-            
-            # 检查是否需要销毁低级装备
-            if self.auto_destroy and old_item:
-                self._destroy_low_level_gear(old_item)
 
         self.confirmed = True
         self._reveal_timer = 1.5  # 1.5秒展示时间
@@ -268,23 +266,31 @@ class RewardScene:
         
         return new_level > old_level
 
-    def _destroy_low_level_gear(self, old_item) -> None:
-        """销毁低级装备"""
-        if old_item is None:
-            return
-        
-        # T5和特殊视为同级
-        if hasattr(old_item, 'tier'):
-            old_level = old_item.tier if old_item.tier < 5 else 5
-        else:
-            return
-        
-        # 检查背包中是否有更低级的装备
-        from systems.inventory import remove_item
-        for i, item in enumerate(self.backpack):
-            if item is old_item:
-                remove_item(self.backpack, i)
-                break
+    def _reward_will_auto_equip(self) -> bool:
+        """当前选中奖励是否会触发自动装备替换（新装备等级更高）"""
+        from entities.item import Weapon, Armor
+        _, _, reward = self.options[self.selected]
+        if isinstance(reward, Weapon):
+            if self.options[self.selected][0].startswith("近战"):
+                return self._should_auto_equip_weapon(reward, self.player.melee_weapon)
+            if self.options[self.selected][0].startswith("远程"):
+                return self._should_auto_equip_weapon(reward, self.player.ranged_weapon)
+        elif isinstance(reward, Armor):
+            return self._should_auto_equip_armor(reward, self.player.armor)
+        return False
+
+    def _old_item(self) -> Weapon | Armor | None:
+        """返回选中奖励对应槽位的当前装备；未装备或无对应槽位返回 None"""
+        from entities.item import Weapon, Armor
+        _, _, reward = self.options[self.selected]
+        if isinstance(reward, Weapon):
+            if self.options[self.selected][0].startswith("近战"):
+                return self.player.melee_weapon
+            if self.options[self.selected][0].startswith("远程"):
+                return self.player.ranged_weapon
+        elif isinstance(reward, Armor):
+            return self.player.armor
+        return None
 
     def update(self, dt: float) -> str | None:
         """展示揭示文字后延迟返回"""

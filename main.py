@@ -121,6 +121,8 @@ class Game:
             self.current_floor = data["current_floor"]
             self.monsters_killed = data["monsters_killed"]
             self.auto_destroy = data.get("auto_destroy", AUTO_DESTROY_LOW_LEVEL_GEAR)
+            # 音乐开关随存档恢复（若关闭立即静音）
+            self.audio.set_bgm_enabled(data.get("music_enabled", True))
             # 确保玩家有武器
             if self.player.melee_weapon is None:
                 self.player.melee_weapon = WEAPON_BY_NAME["铜剑"]
@@ -244,7 +246,9 @@ class Game:
                 self.running = False
             elif result == "settings":
                 from scenes.settings_scene import SettingsScene
-                self.settings_scene = SettingsScene(self.difficulty)
+                self.settings_scene = SettingsScene(
+                    self.difficulty, self.auto_destroy,
+                    self.audio.bgm_enabled, self.audio)
                 self.scene = "settings"
 
         elif self.scene == "settings" and self.settings_scene:
@@ -252,6 +256,7 @@ class Game:
             if result == "menu":
                 self.difficulty = self.settings_scene.get_difficulty()
                 self.auto_destroy = self.settings_scene.get_auto_destroy()
+                self.audio.set_bgm_enabled(self.settings_scene.get_music_on())
                 self._init_menu()
                 self.scene = "menu"
 
@@ -316,7 +321,8 @@ class Game:
                 self.current_floor = self.combat_scene.current_floor
                 save_game(self.player, self.backpack, self.revive_system,
                           self.current_floor, self.monsters_killed,
-                          scene_state="reward", auto_destroy=self.auto_destroy)
+                          scene_state="reward", auto_destroy=self.auto_destroy,
+                          music_enabled=self.audio.bgm_enabled)
                 from scenes.reward_scene import RewardScene
                 self.reward_scene = RewardScene(
                     self.player, self.backpack, self.revive_system,

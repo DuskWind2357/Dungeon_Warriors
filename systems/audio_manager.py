@@ -6,6 +6,7 @@ Dungeon Warriors V1.0.2 — 音效系统
 import random
 import os
 import pygame
+from config import MUSIC_ENABLED
 from utils import resource_path
 
 
@@ -29,7 +30,7 @@ class AudioManager:
         # 环境音计时器（按怪物个体）
         self._ambient_timers: dict[int, float] = {}
         # BGM 状态（与音效独立，便于后续扩展）
-        self._bgm_enabled: bool = True
+        self._bgm_enabled: bool = MUSIC_ENABLED
         self._bgm_volume: float = 0.5
         self._current_bgm: str = ""  # 当前播放的BGM文件路径
 
@@ -287,6 +288,12 @@ class AudioManager:
     def toggle_bgm(self) -> None:
         """切换BGM开关"""
         self._bgm_enabled = not self._bgm_enabled
+        if not self._bgm_enabled:
+            self.stop_bgm()
+
+    def set_bgm_enabled(self, enabled: bool) -> None:
+        """设置BGM开关；关闭时立即停止当前音乐"""
+        self._bgm_enabled = bool(enabled)
         if not self._bgm_enabled:
             self.stop_bgm()
 
