@@ -104,7 +104,8 @@ class CombatScene:
         self._floor_clearing: bool = False
 
         # 楼层布局缓存（除非死亡/重置，否则地图结构不变）
-        self._floor_layout_cache: dict[int, FloorLayout] = {}
+        # 缓存格式: {floor_num: (FloorLayout, room_cleared_dict)}
+        self._floor_layout_cache: dict[int, tuple[FloorLayout, dict[int, bool]]] = {}
 
         self._init_floor()
 
@@ -142,16 +143,17 @@ class CombatScene:
         else:
             # V1.0.5 战斗楼层：检查缓存，有则使用缓存，无则生成新布局
             if self.current_floor in self._floor_layout_cache:
-                self.floor_layout = self._floor_layout_cache[self.current_floor]
+                self.floor_layout, self.room_cleared = self._floor_layout_cache[self.current_floor]
             else:
                 self.floor_layout = generate_floor(self.current_floor)
-                self._floor_layout_cache[self.current_floor] = self.floor_layout
+                self.room_cleared = {}
+                self._floor_layout_cache[self.current_floor] = (self.floor_layout, self.room_cleared)
             
             self.current_room = self.floor_layout.current_room
             self.grid = self.current_room.grid
             self.spawn_pos = self.current_room.spawn_pos
 
-            # 初始化房间怪物状态（保留已清理状态）
+            # 初始化房间怪物状态
             self.room_monsters = {}
             self._room_spawned = {}
             for room in self.floor_layout.rooms:
@@ -634,11 +636,12 @@ class CombatScene:
             self._portal_timer += dt
 
             if self._portal_timer >= PORTAL_TRAVEL_DELAY:
+                # 先完成传送，再重置状态
+                self._complete_portal_travel()
                 self._portal_timer = -1.0
                 self._portal_target = None
                 self._portal_hint = None
                 self._portal_countdown = None
-                self._complete_portal_travel()
 
         # 检查通往下一楼层的传送门（需要站在上面+楼层已清）
         if (self.floor_layout and self.floor_layout.floor_portal_pos is not None
