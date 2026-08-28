@@ -37,10 +37,10 @@ class SettingsScene:
                                start_y + i * (btn_h + gap), btn_w, btn_h)
             self.buttons.append(rect)
         
-        # 低级装备自动销毁开关按钮
+        # 低级装备自动销毁开关按钮（下移避免遮挡文字）
         toggle_w, toggle_h = 200, 40
         self.toggle_btn = pygame.Rect((WINDOW_WIDTH - toggle_w) // 2,
-                                      start_y + 3 * (btn_h + gap) + 20, toggle_w, toggle_h)
+                                      start_y + 3 * (btn_h + gap) + 60, toggle_w, toggle_h)
 
     def handle_event(self, event: pygame.event.Event) -> str | None:
         if event.type == pygame.KEYDOWN:
@@ -117,7 +117,7 @@ class SettingsScene:
         # 低级装备自动销毁开关
         if self.toggle_btn:
             toggle_label = font_btn.render("低级装备自动销毁", True, COLOR_TEXT)
-            screen.blit(toggle_label, toggle_label.get_rect(center=(cx, self.toggle_btn.y - 15)))
+            screen.blit(toggle_label, toggle_label.get_rect(center=(cx, self.toggle_btn.y - 25)))
             
             # 开关按钮
             is_on = self.auto_destroy
