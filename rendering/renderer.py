@@ -23,6 +23,7 @@ from entities.player import Player
 from entities.monster import Monster
 from entities.item import Weapon, Armor, Consumable
 from rendering.pixel_style import draw_progress_bar
+from systems.floor_manager import RoomType
 from utils import resource_path
 
 # 怪物图标缓存
@@ -121,6 +122,7 @@ _SPECIAL_ROOM_TEXTURES: dict[str, dict[str, str]] = {
     },
     "portal": "icon/block/传送门.webp",
     "portal_active": "icon/block/传送门激活中.webp",
+    "dungeon_portal": "icon/block/BlockSprite_end-gateway.webp",  # 副本传送门
     "floor_portal": "icon/block/传送门.webp",
 }
 
@@ -261,8 +263,17 @@ def draw_map(screen: pygame.Surface, grid: list[list[int]],
                 else:
                     pygame.draw.rect(screen, COLOR_FLOOR, (x, y, TILE_SIZE, TILE_SIZE))
             elif cell == 5:
-                # V1.0.5 传送门墙壁
-                _draw_portal_wall(screen, x, y, texs)
+                # V1.0.5 传送门墙壁（根据目标房间类型选择贴图）
+                portal_type = "portal"
+                if current_room and floor_layout:
+                    for p in current_room.portals:
+                        pcol, prow = current_room._portal_grid_pos(p)
+                        if (col, row) == (pcol, prow):
+                            target_room = floor_layout.get_room_by_idx(p.target_room_idx)
+                            if target_room and target_room.room_type == RoomType.DUNGEON:
+                                portal_type = "dungeon_portal"
+                            break
+                _draw_portal_wall(screen, x, y, texs, portal_type)
             else:
                 # 地板变种（固定种子，避免闪烁）
                 if room_type_val == "dungeon":
@@ -300,22 +311,30 @@ def draw_map(screen: pygame.Surface, grid: list[list[int]],
         _draw_floor_portal(screen, px * TILE_SIZE, py * TILE_SIZE, portal_active)
 
 
+_special_texture_cache: dict[str, pygame.Surface | None] = {}
+
 def _load_special_texture(path: str | None) -> pygame.Surface | None:
-    """加载特殊房间贴图"""
+    """加载特殊房间贴图（带缓存，避免每帧重复加载导致卡顿）"""
     if not path:
         return None
+    if path in _special_texture_cache:
+        return _special_texture_cache[path]
     full = resource_path(path)
     if not os.path.exists(full):
+        _special_texture_cache[path] = None
         return None
     try:
         img = pygame.image.load(full).convert_alpha()
-        return pygame.transform.scale(img, (TILE_SIZE, TILE_SIZE))
+        tex = pygame.transform.scale(img, (TILE_SIZE, TILE_SIZE))
+        _special_texture_cache[path] = tex
+        return tex
     except Exception:
+        _special_texture_cache[path] = None
         return None
 
 
 def _draw_portal_wall(screen: pygame.Surface, x: int, y: int,
-                      texs: dict) -> None:
+                      texs: dict, portal_type: str = "portal") -> None:
     """绘制V1.0.5传送门墙壁（只用贴图，无额外渲染）"""
     # 先绘制地板贴图作为背景
     floor_tex = texs.get("floor")
@@ -324,8 +343,8 @@ def _draw_portal_wall(screen: pygame.Surface, x: int, y: int,
     else:
         pygame.draw.rect(screen, COLOR_FLOOR, (x, y, TILE_SIZE, TILE_SIZE))
     
-    # 再绘制传送门贴图
-    portal_tex = _load_special_texture(_SPECIAL_ROOM_TEXTURES.get("portal"))
+    # 再绘制传送门贴图（根据类型选择）
+    portal_tex = _load_special_texture(_SPECIAL_ROOM_TEXTURES.get(portal_type))
     if portal_tex:
         screen.blit(portal_tex, (x, y))
     else:
@@ -333,23 +352,28 @@ def _draw_portal_wall(screen: pygame.Surface, x: int, y: int,
 
 
 def _draw_floor_portal(screen: pygame.Surface, x: int, y: int, active: bool) -> None:
-    """绘制通往下一楼层的传送门（未激活=深灰偏黑，激活=紫色脉冲）"""
-    color = (140, 50, 200) if active else (40, 40, 50)
-    radius = TILE_SIZE // 2 - 2 if active else TILE_SIZE // 3
-    center_x = x + TILE_SIZE // 2
-    center_y = y + TILE_SIZE // 2
+    """绘制通往下一楼层的传送门（使用传送门贴图，激活=紫色脉冲光效）"""
+    portal_tex = _load_special_texture(_SPECIAL_ROOM_TEXTURES.get("floor_portal"))
+    if portal_tex:
+        screen.blit(portal_tex, (x, y))
+    else:
+        color = (140, 50, 200) if active else (40, 40, 50)
+        radius = TILE_SIZE // 2 - 2 if active else TILE_SIZE // 3
+        center_x = x + TILE_SIZE // 2
+        center_y = y + TILE_SIZE // 2
+        pygame.draw.circle(screen, color, (center_x, center_y), radius)
 
     if active:
         import time
         pulse = (math.sin(time.time() * 3) + 1) / 2
-        radius += int(pulse * 4)
-        alpha = int(150 + pulse * 105)
+        center_x = x + TILE_SIZE // 2
+        center_y = y + TILE_SIZE // 2
+        radius = TILE_SIZE // 3 + int(pulse * 4)
+        alpha = int(120 + pulse * 80)
         glow = pygame.Surface((radius * 3, radius * 3), pygame.SRCALPHA)
-        pygame.draw.circle(glow, (*color[:3], alpha),
+        pygame.draw.circle(glow, (140, 50, 200, alpha),
                          (radius * 3 // 2, radius * 3 // 2), radius * 1.5)
         screen.blit(glow, (center_x - radius * 3 // 2, center_y - radius * 3 // 2))
-
-    pygame.draw.circle(screen, color, (center_x, center_y), radius)
 
 
 def draw_player(screen: pygame.Surface, player: Player) -> None:

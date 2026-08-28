@@ -233,7 +233,109 @@ def _is_adjacent(self, side1, offset1, side2, offset2):
 
 ---
 
-## 四、测试计划
+## 四、V1.0.5.3 BUG修复方案（2026年8月28日追加）
+
+### BUG6: 地图结构锁定机制失效
+
+**根本原因**：
+- `_floor_layout_cache` 是 `CombatScene` 的实例变量
+- 每次调用 `_start_combat()` 都会创建新的 `CombatScene` 实例
+- 新实例的缓存为空，导致地图每次都重新生成
+
+**修复方案**：
+1. **修改 `main.py`**：
+   - 将 `floor_layout_cache` 从 `CombatScene` 实例变量迁移至 `Game` 类实例变量
+   - 缓存格式: `dict[int, tuple[FloorLayout, dict[int, bool]]]`
+   - `_start_combat()` 创建 `CombatScene` 时传入缓存引用
+   - `_on_player_death()` 清除 `Game.floor_layout_cache`
+   - `_revive_player()` 重新传递缓存引用
+
+2. **修改 `scenes/combat_scene.py`**：
+   - 构造函数新增 `floor_layout_cache` 参数
+   - `_init_floor()` 从外部缓存读取/写入布局
+   - `room_cleared` 字典与缓存共享引用，修改同步
+
+**涉及文件**：
+- `main.py`
+- `scenes/combat_scene.py`
+
+---
+
+### BUG7: 通关传送门常开 + 绘制不全
+
+**问题描述**：
+- 通关传送门在玩家离开区域后关闭，需要常开
+- 通关传送门绘制不全
+
+**修复方案**：
+1. **修改 `scenes/combat_scene.py`**：
+   - `_is_floor_cleared()` 返回 True 后立即设置 `self.portal_active = True`
+   - 移除玩家离开时的 `self.portal_active = False` 逻辑
+   - 只在楼层未通关时关闭传送门
+
+2. **修改 `rendering/renderer.py`**：
+   - `_draw_floor_portal()` 改用传送门贴图渲染（不再只画圆）
+   - 激活后叠加紫色脉冲光效
+
+**涉及文件**：
+- `scenes/combat_scene.py`
+- `rendering/renderer.py`
+
+---
+
+### BUG8: 副本传送门贴图落实
+
+**问题描述**：
+- 通向副本的传送门贴图须使用 `BlockSprite_end-gateway.webp`
+- 原实现未区分目标房间类型
+
+**修复方案**：
+1. **修改 `rendering/renderer.py`**：
+   - `_SPECIAL_ROOM_TEXTURES` 新增 `dungeon_portal` 键
+   - `draw_map()` 中 cell==5 路径：查找传送门目标房间类型
+   - `_draw_portal_wall()` 新增 `portal_type` 参数，根据类型选贴图
+
+2. **新增导入**：
+   - `renderer.py` 导入 `RoomType`
+
+**涉及文件**：
+- `rendering/renderer.py`
+
+---
+
+### BUG9: 传送门倒计时结束后不传送
+
+**根本原因**：
+- `_complete_portal_travel()` 在 `_portal_target = None` 之后调用
+- 导致方法内 `if not self._portal_target: return` 直接退出
+
+**修复方案**：
+1. **修改 `scenes/combat_scene.py`**：
+   - 先调用 `_complete_portal_travel()`
+   - 再重置状态（`_portal_timer`, `_portal_target`, `_portal_hint`, `_portal_countdown`）
+   - 修复离开传送门区域时 `_portal_timer == 0` 未重置的边界情况（`> 0` 改为 `>= 0`）
+
+**涉及文件**：
+- `scenes/combat_scene.py`
+
+---
+
+### 性能优化: 特殊房间贴图缓存
+
+**问题描述**：
+- `_load_special_texture()` 每帧重新加载贴图，导致卡顿
+
+**修复方案**：
+1. **修改 `rendering/renderer.py`**：
+   - 新增 `_special_texture_cache` 模块级字典
+   - `_load_special_texture()` 首次加载后缓存，后续直接返回缓存
+
+**涉及文件**：
+- `rendering/renderer.py`
+
+---
+
+## 五、测试计划
 
 ### 测试用例
 

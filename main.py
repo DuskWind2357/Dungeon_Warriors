@@ -59,6 +59,9 @@ class Game:
         self.difficulty: str = "easy"  # 默认难度
         self.auto_destroy: bool = AUTO_DESTROY_LOW_LEVEL_GEAR  # 低级装备自动销毁开关
 
+        # V1.0.5 楼层布局缓存（跨场景持久化，解决地图锁定问题）
+        self.floor_layout_cache: dict[int, tuple] = {}
+
         # 场景对象
         self.menu_scene = None
         self.combat_scene = None
@@ -143,6 +146,7 @@ class Game:
             self.current_floor, self.monsters_killed,
             audio_manager=self.audio,
             difficulty=self.difficulty,
+            floor_layout_cache=self.floor_layout_cache,
         )
         self.scene = "combat"
 
@@ -157,8 +161,7 @@ class Game:
         self.player.status_effects.clear()
         self.player._burn_dmg = 0
         # 清除楼层布局缓存（死亡后重新生成地图）
-        if self.combat_scene:
-            self.combat_scene._floor_layout_cache.clear()
+        self.floor_layout_cache.clear()
         if self.revive_system.consume_revive():
             self.scene = "death"
         else:
@@ -170,7 +173,8 @@ class Game:
         if self.combat_scene:
             self.player.current_hp = self.player.total_max_hp()
             # 复活时清除楼层缓存，重新生成地图
-            self.combat_scene._floor_layout_cache.clear()
+            self.floor_layout_cache.clear()
+            self.combat_scene._floor_layout_cache = self.floor_layout_cache
             self.combat_scene._init_floor()
         self.scene = "combat"
 

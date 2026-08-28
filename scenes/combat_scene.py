@@ -54,7 +54,8 @@ class CombatScene:
                  current_floor: int,
                  monsters_killed: int = 0,
                  audio_manager: AudioManager | None = None,
-                 difficulty: str = "easy") -> None:
+                 difficulty: str = "easy",
+                 floor_layout_cache: dict | None = None) -> None:
         self.player = player
         self.backpack = backpack
         self.revive_system = revive_system
@@ -103,9 +104,8 @@ class CombatScene:
         self._last_esc_time: float = 0.0
         self._floor_clearing: bool = False
 
-        # 楼层布局缓存（除非死亡/重置，否则地图结构不变）
-        # 缓存格式: {floor_num: (FloorLayout, room_cleared_dict)}
-        self._floor_layout_cache: dict[int, tuple[FloorLayout, dict[int, bool]]] = {}
+        # V1.0.5 楼层布局缓存（跨场景持久化，解决地图锁定问题）
+        self._floor_layout_cache: dict[int, tuple[FloorLayout, dict[int, bool]]] = floor_layout_cache if floor_layout_cache is not None else {}
 
         self._init_floor()
 
@@ -618,7 +618,7 @@ class CombatScene:
                 self._portal_proximity_sound_playing = True
         else:
             self._portal_proximity_sound_playing = False
-            if self._portal_timer > 0:
+            if self._portal_timer >= 0:
                 self._portal_timer = -1.0
                 self._portal_target = None
                 self._portal_countdown = None
@@ -648,14 +648,15 @@ class CombatScene:
                 and self.floor_layout.floor_portal_room_idx is not None
                 and not self._floor_clearing):
             if self._is_floor_cleared():
+                # 通关后传送门常开（不再因玩家离开而关闭）
+                if not self.portal_active and self.audio:
+                    self.audio.play_portal_appear()
+                self.portal_active = True
+
                 fpx, fpy = self.floor_layout.floor_portal_pos
                 dist = math.sqrt((self.player.x - (fpx * TILE_SIZE + TILE_SIZE // 2))**2 +
                                (self.player.y - (fpy * TILE_SIZE + TILE_SIZE // 2))**2)
                 if dist < TILE_SIZE * 1.5:
-                    if not self.portal_active and self.audio:
-                        self.audio.play_portal_appear()
-                    self.portal_active = True
-
                     empty = sum(1 for s in self.backpack if s is None)
                     if empty <= 1:
                         msg = "背包已满，无法传送！" if empty == 0 else "背包将满，无法传送！"
@@ -677,7 +678,6 @@ class CombatScene:
                 else:
                     self._floor_portal_timer = -1
                     self._portal_countdown = None
-                    self.portal_active = False
             else:
                 self.portal_active = False
 
