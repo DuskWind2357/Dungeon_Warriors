@@ -340,6 +340,42 @@ def _is_adjacent(self, side1, offset1, side2, offset2):
 
 ---
 
+### BUG12: 副本通向宝藏室传送门贴图修正
+
+**问题描述**：
+- 副本房间通向宝藏室的传送门应保持使用普通传送门贴图 `传送门.webp`
+- 原实现副本房间所有传送门统一使用副本贴图
+
+**修复方案**：
+1. **修改 `rendering/renderer.py`**：
+   - 副本→非宝藏室传送门：使用副本贴图 `BlockSprite_end-gateway.webp`
+   - 副本→宝藏室传送门：使用普通贴图 `传送门.webp`
+   - 条件：`current_room.room_type == DUNGEON and target_room.room_type != TREASURE`
+
+**涉及文件**：
+- `rendering/renderer.py`
+
+---
+
+### BUG13: 掉落物不跨房间显示
+
+**问题描述**：
+- 玩家在战斗房间击杀怪物掉落物品但未捡起，进入宝藏房间后物品出现在相同位置
+- 原因：`self.drops` 是全局列表，切换房间时不清理
+
+**修复方案**：
+1. **修改 `scenes/combat_scene.py`**：
+   - `self.drops` 从 `list` 改为 `dict[int, list]`，按 `room_idx` 存储
+   - `_roll_drops()` 通过 `_add_drop(room_idx, drop)` 添加到当前房间
+   - `_pickup_item()` 只检测当前房间的掉落物
+   - `draw()` 只渲染当前房间的掉落物
+   - 新增 `_add_drop(room_idx, drop)` 辅助方法
+
+**涉及文件**：
+- `scenes/combat_scene.py`
+
+---
+
 ### BUG9: 传送门倒计时结束后不传送
 
 **根本原因**：

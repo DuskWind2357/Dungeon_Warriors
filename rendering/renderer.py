@@ -265,19 +265,19 @@ def draw_map(screen: pygame.Surface, grid: list[list[int]],
                 else:
                     pygame.draw.rect(screen, COLOR_FLOOR, (x, y, TILE_SIZE, TILE_SIZE))
             elif cell == 5:
-                # V1.0.5 传送门墙壁（根据目标房间类型或当前房间类型选择贴图）
+                # V1.0.5 传送门墙壁（根据目标房间类型选择贴图）
                 portal_type = "portal"
                 if current_room and floor_layout:
                     for p in current_room.portals:
                         pcol, prow = current_room._portal_grid_pos(p)
                         if (col, row) == (pcol, prow):
-                            # 当前房间是副本 → 所有传送门用副本贴图
-                            if current_room.room_type == RoomType.DUNGEON:
-                                portal_type = "dungeon_portal"
-                            else:
-                                # 目标房间是副本 → 用副本贴图
-                                target_room = floor_layout.get_room_by_idx(p.target_room_idx)
-                                if target_room and target_room.room_type == RoomType.DUNGEON:
+                            target_room = floor_layout.get_room_by_idx(p.target_room_idx)
+                            if target_room:
+                                # 副本→非宝藏室传送门用副本贴图（副本→宝藏室保持普通贴图）
+                                if current_room.room_type == RoomType.DUNGEON and target_room.room_type != RoomType.TREASURE:
+                                    portal_type = "dungeon_portal"
+                                # 其他房间→副本传送门用副本贴图
+                                elif target_room.room_type == RoomType.DUNGEON:
                                     portal_type = "dungeon_portal"
                             break
                 _draw_portal_wall(screen, x, y, texs, portal_type)

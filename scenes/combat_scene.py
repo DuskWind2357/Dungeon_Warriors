@@ -72,7 +72,7 @@ class CombatScene:
         self.in_spawn_zone: bool = True
         self.spawn_timer: float = -1.0
         self.monsters: list[Monster] = []
-        self.drops: list[tuple[object, float, float]] = []
+        self.drops: dict[int, list[tuple[object, float, float]]] = {}  # room_idx → drops
         self.projectiles: list[dict] = []
 
         # V1.0.5 多房间系统
@@ -1274,28 +1274,29 @@ class CombatScene:
     def _roll_drops(self, monster: Monster) -> None:
         mtype = monster.monster_type
         mx, my = monster.x, monster.y
+        room_idx = self.current_room.room_idx if self.current_room else 0
 
         if mtype == "normal":
             r = random.random()
             if r < DROP_NORMAL_BREAD:
-                self.drops.append((BREAD, mx, my))
+                self._add_drop(room_idx, (BREAD, mx, my))
             elif r < DROP_NORMAL_BREAD + DROP_NORMAL_POTION:
-                self.drops.append((random.choice(POTION_POOL), mx + 10, my))
+                self._add_drop(room_idx, (random.choice(POTION_POOL), mx + 10, my))
 
         elif mtype == "elite":
             dropped = 0
             if random.random() < DROP_ELITE_BREAD and dropped < 2:
-                self.drops.append((BREAD, mx, my))
+                self._add_drop(room_idx, (BREAD, mx, my))
                 dropped += 1
             if random.random() < DROP_ELITE_POTION and dropped < 2:
-                self.drops.append((random.choice(POTION_POOL), mx + 10, my))
+                self._add_drop(room_idx, (random.choice(POTION_POOL), mx + 10, my))
 
         elif mtype == "head_boss":
             self._drop_better_equip(monster)
             if random.random() < DROP_BOSS_BREAD:
-                self.drops.append((BREAD, mx + 5, my + 5))
+                self._add_drop(room_idx, (BREAD, mx + 5, my + 5))
             if random.random() < DROP_BOSS_POTION:
-                self.drops.append((random.choice(POTION_POOL), mx - 5, my + 5))
+                self._add_drop(room_idx, (random.choice(POTION_POOL), mx - 5, my + 5))
 
     def _drop_better_equip(self, monster: Monster) -> None:
         """头目掉落：玩家同类型装备满级或特殊时，掉落必为特殊（V1.0.4 P2）"""
@@ -1337,7 +1338,8 @@ class CombatScene:
                 item = random.choice(pool) if pool else None
 
         if item:
-            self.drops.append((item, monster.x, monster.y - 10))
+            room_idx = self.current_room.room_idx if self.current_room else 0
+            self._add_drop(room_idx, (item, monster.x, monster.y - 10))
 
     def _quick_use(self, key: int) -> None:
         """快捷键快速使用消耗品"""
@@ -1365,20 +1367,28 @@ class CombatScene:
         self.toasts.append(t)
 
     def _pickup_item(self) -> None:
-        if not self.drops:
+        room_idx = self.current_room.room_idx if self.current_room else 0
+        room_drops = self.drops.get(room_idx, [])
+        if not room_drops:
             return
         closest_idx = 0
         closest_dist = float("inf")
-        for i, (_, px, py) in enumerate(self.drops):
+        for i, (_, px, py) in enumerate(room_drops):
             d = (self.player.x - px)**2 + (self.player.y - py)**2
             if d < closest_dist:
                 closest_dist = d
                 closest_idx = i
         if closest_dist > (TILE_SIZE * 1.5)**2:
             return
-        item = self.drops[closest_idx][0]
+        item = room_drops[closest_idx][0]
         if add_item(self.backpack, item):
-            self.drops.pop(closest_idx)
+            room_drops.pop(closest_idx)
+
+    def _add_drop(self, room_idx: int, drop: tuple) -> None:
+        """向指定房间添加掉落物"""
+        if room_idx not in self.drops:
+            self.drops[room_idx] = []
+        self.drops[room_idx].append(drop)
 
     # ================================================================
     # 楼层通关
@@ -1413,7 +1423,7 @@ class CombatScene:
                  self.portal_active, self.in_spawn_zone,
                  get_theme(self.current_floor),
                  self.floor_layout, self.current_room)
-        draw_drops(screen, self.drops)
+        draw_drops(screen, self.drops.get(self.current_room.room_idx, []) if self.current_room else [])
         for monster in self.monsters:
             if monster.is_alive():
                 draw_monster(screen, monster)
