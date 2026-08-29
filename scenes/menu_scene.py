@@ -6,6 +6,7 @@ Dungeon Warriors — 主菜单场景
 import pygame
 from rendering.pixel_style import draw_pixel_text, draw_stone_button
 from rendering.renderer import get_title_font, get_button_font, get_font
+from utils import resource_path
 
 
 # 按钮标签
@@ -22,7 +23,16 @@ class MenuScene:
         self.buttons: list[pygame.Rect] = []
         self.button_labels: list[str] = []
         self.hovered_index: int = -1
+        self.background = self._load_background()
         self._layout_buttons()
+
+    def _load_background(self) -> pygame.Surface | None:
+        """加载主菜单背景图（缩放至窗口大小），失败时返回 None 回退纯色背景"""
+        try:
+            img = pygame.image.load(resource_path("icon/主菜单.jpg")).convert()
+            return pygame.transform.smoothscale(img, (960, 720))
+        except (FileNotFoundError, pygame.error):
+            return None
 
     def _layout_buttons(self) -> None:
         """计算按钮位置"""
@@ -90,7 +100,10 @@ class MenuScene:
     def draw(self, screen: pygame.Surface) -> None:
         """绘制主菜单"""
         from config import COLOR_BG
-        screen.fill(COLOR_BG)
+        if self.background is not None:
+            screen.blit(self.background, (0, 0))
+        else:
+            screen.fill(COLOR_BG)
 
         title_font = get_title_font()
         btn_font = get_button_font()
@@ -123,6 +136,6 @@ class MenuScene:
         credit_rect = credit.get_rect(center=(screen_center_x, screen.get_height() - 20))
         screen.blit(credit, credit_rect)
 
-        version = small_font.render("V1.0.5.6", True, (120, 120, 140))
+        version = small_font.render("V1.0.5.8", True, (120, 120, 140))
         version_rect = version.get_rect(bottomright=(screen.get_width() - 15, screen.get_height() - 10))
         screen.blit(version, version_rect)
