@@ -974,7 +974,7 @@ class CombatScene:
                 monster.skill_cd = 20.0; self.toasts.append(make_toast(f'{monster.name} 三连箭！'))
             # 暗影骑士: >3格 → 冲刺(1秒×2速)
             elif '暗影骑士' in monster.name and '暗黑' not in monster.name and monster.skill_cd <= 0 and dist_to_player > TILE_SIZE*3:
-                monster._orig_spd = monster.speed; monster.speed = monster.speed*2
+                monster._orig_spd = monster.speed; monster.speed = int(monster.speed*2)
                 monster.skill_cd = 20.0; monster._dash_timer = 1.0
                 self.toasts.append(make_toast('暗影骑士 冲刺！'))
             # 冲刺恢复
@@ -1022,7 +1022,7 @@ class CombatScene:
                     if not self._collides_wall(monster.x, ny): monster.y = ny
                 # 玩家距离<2格时以50%速度远离（除首领外）
                 if dist_p < TILE_SIZE * 2 and monster.monster_type != 'final_boss':
-                    flee_spd = max(1, monster.speed * 0.5)
+                    flee_spd = max(1, int(monster.speed * 0.5))
                     nx, ny = move_toward(monster.x, monster.y,
                                          self.player.x, self.player.y, -flee_spd)
                     if not self._collides_wall(nx, monster.y): monster.x = nx
