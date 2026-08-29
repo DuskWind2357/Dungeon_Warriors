@@ -14,6 +14,9 @@ from config import (
     MONSTER_PER_5_FLOORS_HP, MONSTER_PER_5_FLOORS_ATK,
     PORTAL_MIN_EDGE_DIST, PORTAL_COUNT_MIN, PORTAL_COUNT_MAX,
     DUNGEON_ROOM_CHANCE, TREASURE_ROOM_CHANCE,
+    BRANCH_COUNTS, DUNGEON_ROOM_CHANCES, DUNGEON_MAX_PER_FLOOR,
+    BOSS_BRANCH_COUNT,
+    TREASURE_ROOM_CHANCE_BATTLE, TREASURE_ROOM_DUNGEON_CHANCE,
 )
 from entities.monster import Monster
 from data.monsters import (
@@ -23,11 +26,14 @@ from data.monsters import (
 
 
 class RoomType(Enum):
-    """房间类型枚举"""
+    """房间类型枚举（V1.0.5.6 扩展）"""
     SPAWN = "spawn"
     BATTLE = "battle"
     TREASURE = "treasure"
     DUNGEON = "dungeon"
+    ENHANCED_BATTLE = "enhanced_battle"   # 增强战斗房间（BOSS楼层）
+    BOSS_BATTLE = "boss_battle"           # BOSS战房间
+    SPECIAL_TREASURE = "special_treasure" # 特殊宝藏房间（需钥匙解锁）
 
 
 @dataclass
@@ -55,6 +61,7 @@ class Room:
     has_floor_portal: bool = False
     spawn_pos: tuple[int, int] = (0, 0)
     monster_positions: list[tuple[float, float]] = field(default_factory=list)
+    unlocked: bool = False   # 特殊宝藏房间：是否已用钥匙解锁（V1.0.5.6）
 
     @property
     def center(self) -> tuple[int, int]:
@@ -148,17 +155,33 @@ def generate_floor(floor_num: int = 1) -> FloorLayout:
     if floor_type in ("boss", "final_boss"):
         return _generate_boss_floor(floor_num, floor_type)
 
-    n_battle = random.randint(PORTAL_COUNT_MIN, PORTAL_COUNT_MAX)
+    # V1.0.5.6 按楼层段等概率取分支数
+    branch_counts, dchance, dmax = _get_band_spec(floor_num)
+    n_branch = random.choice(branch_counts)
     rooms: list[Room] = []
 
     spawn_room = Room(room_idx=0, room_type=RoomType.SPAWN)
     _generate_room_grid(spawn_room)
     rooms.append(spawn_room)
 
-    for i in range(n_battle):
-        room = Room(room_idx=len(rooms), room_type=RoomType.BATTLE)
-        if random.random() < DUNGEON_ROOM_CHANCE:
-            room.room_type = RoomType.DUNGEON
+    # 先确定所有分支类型（满足副本规则），再生成网格资源 —— 确保符合规则后才加载
+    dungeon_count = 0
+    branch_types: list[RoomType] = []
+    for _ in range(n_branch):
+        is_dungeon = (dchance > 0 and dungeon_count < dmax
+                      and random.random() < dchance)
+        if is_dungeon:
+            dungeon_count += 1
+            branch_types.append(RoomType.DUNGEON)
+        else:
+            branch_types.append(RoomType.BATTLE)
+
+    # 超限副本自动替换为战斗房间（前面判定已保证不超上限，此处兜底）
+    branch_types = [RoomType.BATTLE if (rt == RoomType.DUNGEON and dungeon_count > dmax) else rt
+                    for rt in branch_types]
+
+    for rtype in branch_types:
+        room = Room(room_idx=len(rooms), room_type=rtype)
         _generate_room_grid(room)
         rooms.append(room)
 
@@ -177,11 +200,60 @@ def generate_floor(floor_num: int = 1) -> FloorLayout:
                        floor_portal_room_idx=floor_portal_room_idx)
 
 
+def _get_band_spec(floor_num: int) -> tuple[list[int], float, int]:
+    """返回 (可选分支数列表, 副本概率, 副本上限)，默认兜底为单分支战斗"""
+    for (lo, hi), counts in BRANCH_COUNTS.items():
+        if lo <= floor_num <= hi:
+            return (list(counts),
+                    DUNGEON_ROOM_CHANCES.get((lo, hi), 0.0),
+                    DUNGEON_MAX_PER_FLOOR.get((lo, hi), 0))
+    return [2], 0.0, 0
+
+
 def _generate_boss_floor(floor_num: int, floor_type: str) -> FloorLayout:
-    """BOSS楼层：只有1个房间"""
-    room = Room(room_idx=0, room_type=RoomType.BATTLE)
-    _generate_room_grid(room)
-    return FloorLayout(rooms=[room], current_room_idx=0)
+    """V1.0.5.6 BOSS战斗楼层：多房间（出生点 + 分支）
+    头目楼层(10/20)：1 BOSS战 + 2 增强战斗 + 1 特殊宝藏
+    首领楼层(30)：  1 BOSS战 + 3 增强战斗
+    """
+    rooms: list[Room] = []
+
+    spawn_room = Room(room_idx=0, room_type=RoomType.SPAWN)
+    _generate_room_grid(spawn_room)
+    rooms.append(spawn_room)
+
+    if floor_type == "final_boss":
+        branch_spec: list[tuple[RoomType, int]] = [
+            (RoomType.ENHANCED_BATTLE, 3),
+            (RoomType.BOSS_BATTLE, 1),
+        ]
+    else:
+        branch_spec = [
+            (RoomType.ENHANCED_BATTLE, 2),
+            (RoomType.BOSS_BATTLE, 1),
+            (RoomType.SPECIAL_TREASURE, 1),
+        ]
+
+    for rtype, count in branch_spec:
+        for _ in range(count):
+            room = Room(room_idx=len(rooms), room_type=rtype)
+            _generate_room_grid(room)
+            rooms.append(room)
+
+    # 出生点固定 4 分支，各分支仅与出生点相通（增强战斗房间之间不互通）
+    _connect_rooms_with_portals(rooms, force_count=BOSS_BRANCH_COUNT,
+                                with_treasure=False)
+
+    floor_portal_pos = _place_floor_portal(rooms)
+    floor_portal_room_idx = None
+    if floor_portal_pos:
+        for r in rooms:
+            if r.has_floor_portal:
+                floor_portal_room_idx = r.room_idx
+                break
+
+    return FloorLayout(rooms=rooms, current_room_idx=0,
+                       floor_portal_pos=floor_portal_pos,
+                       floor_portal_room_idx=floor_portal_room_idx)
 
 
 def _generate_room_grid(room: Room) -> None:
@@ -225,26 +297,31 @@ def _add_random_walls(grid: list[list[int]], room: Room,
             break
 
 
-def _connect_rooms_with_portals(rooms: list[Room]) -> None:
+def _connect_rooms_with_portals(rooms: list[Room],
+                                force_count: int | None = None,
+                                with_treasure: bool = True) -> None:
     """在房间之间建立传送门连接
-    出生点房间有2-4个传送门，分别通往不同的战斗房间
-    战斗房间/副本有概率额外连接宝藏室
+    force_count: 指定传送门/分支数（BOSS楼层出生点固定 4 分支）
+    with_treasure: 是否为本楼层战斗房间/副本额外连接宝藏室（增强战斗/特殊宝藏房间不生成）
     """
     spawn_room = rooms[0]
-    battle_rooms = rooms[1:]
+    branch_rooms = rooms[1:]
 
-    if not battle_rooms:
+    if not branch_rooms:
         return
 
     sides = ["right", "bottom", "left", "top"]
     random.shuffle(sides)
 
-    n_portals = min(len(battle_rooms), len(sides), PORTAL_COUNT_MAX)
-    n_portals = max(n_portals, PORTAL_COUNT_MIN)
+    if force_count is not None:
+        n_portals = min(force_count, len(branch_rooms), len(sides))
+    else:
+        n_portals = min(len(branch_rooms), len(sides), PORTAL_COUNT_MAX)
+        n_portals = max(n_portals, PORTAL_COUNT_MIN)
 
     for i in range(n_portals):
         side = sides[i]
-        battle_room = battle_rooms[i % len(battle_rooms)]
+        branch_room = branch_rooms[i % len(branch_rooms)]
 
         # 出生点房间的传送门位置
         offset = random.randint(PORTAL_MIN_EDGE_DIST, 
@@ -255,13 +332,13 @@ def _connect_rooms_with_portals(rooms: list[Room]) -> None:
         spawn_portal = Portal(
             side=side,
             offset=offset,
-            target_room_idx=battle_room.room_idx,
+            target_room_idx=branch_room.room_idx,
             target_side=_opposite_side(side),
             target_offset=offset
         )
         spawn_room.portals.append(spawn_portal)
 
-        # 战斗房间的传送门（双向）
+        # 分支房间的传送门（双向）
         target_portal = Portal(
             side=_opposite_side(side),
             offset=offset,
@@ -269,14 +346,15 @@ def _connect_rooms_with_portals(rooms: list[Room]) -> None:
             target_side=side,
             target_offset=offset
         )
-        battle_room.portals.append(target_portal)
+        branch_room.portals.append(target_portal)
 
         # 在网格上放置传送门
         _place_portal_on_grid(spawn_room, spawn_portal)
-        _place_portal_on_grid(battle_room, target_portal)
-    
-    # 为战斗房间/副本生成宝藏室
-    _generate_treasure_rooms(rooms)
+        _place_portal_on_grid(branch_room, target_portal)
+
+    # 为战斗房间/副本生成宝藏室（BOSS楼层的增强战斗/特殊宝藏房间不生成）
+    if with_treasure:
+        _generate_treasure_rooms(rooms)
 
 
 def _place_portal_on_grid(room: Room, portal: Portal) -> None:
@@ -443,6 +521,12 @@ def spawn_monsters_for_room(room: Room, floor_num: int,
                             spawn_mult: float = 1.0) -> list[Monster]:
     """为指定房间生成怪物"""
     monsters = []
+
+    # BOSS楼层的出生点/增强战斗房间：按第一层标准刷怪（V1.0.5.6）
+    if room.room_type in (RoomType.SPAWN, RoomType.ENHANCED_BATTLE):
+        if get_floor_type(floor_num) in ("boss", "final_boss"):
+            floor_num = 1
+
     scale = MONSTER_SCALE_PER_FLOOR ** (floor_num - 1)
     fb = (floor_num - 1) // 5
 
@@ -540,20 +624,26 @@ def spawn_monsters_for_room(room: Room, floor_num: int,
     return monsters
 
 
-def spawn_monsters_boss(grid: list[list[int]], cols: int, rows: int,
-                       floor_type: str, floor_num: int) -> list[Monster]:
-    """BOSS楼层怪物生成（保持V1.0.4逻辑）"""
+def spawn_monsters_boss(room: Room,
+                        floor_type: str,
+                        floor_num: int) -> list[Monster]:
+    """BOSS战房间怪物生成（V1.0.5.6）
+    头目楼层(10/20)：随机 2 名头目BOSS（近战+远程各一）
+    首领楼层(30)：  固定 高塔之主
+    """
     monsters = []
+    mx = MAP_COLS // 2
+    my = MAP_ROWS // 2
 
     if floor_type == "final_boss":
         fb_data = FINAL_BOSS
-        px = cols // 2 * TILE_SIZE + TILE_SIZE // 2
-        py = rows // 2 * TILE_SIZE + TILE_SIZE // 2
+        px = mx * TILE_SIZE + TILE_SIZE // 2
+        py = my * TILE_SIZE + TILE_SIZE // 2
         m = Monster(name=fb_data["name"], monster_type="final_boss",
-                   hp=fb_data["hp"], max_hp=fb_data["hp"],
-                   attack=fb_data["atk_p1"], attack_range=fb_data["range"],
-                   attack_cooldown=fb_data["cd_p1"], speed=fb_data["speed_p1"],
-                   x=float(px), y=float(py))
+                    hp=fb_data["hp"], max_hp=fb_data["hp"],
+                    attack=fb_data["atk_p1"], attack_range=fb_data["range"],
+                    attack_cooldown=fb_data["cd_p1"], speed=fb_data["speed_p1"],
+                    x=float(px), y=float(py))
         monsters.append(m)
         return monsters
 
@@ -561,19 +651,19 @@ def spawn_monsters_boss(grid: list[list[int]], cols: int, rows: int,
         md = random.choice(HEAD_BOSS_MELEE)
         rd = random.choice(HEAD_BOSS_RANGED)
 
-        def make_boss(mdef):
-            px = cols // 2 * TILE_SIZE + TILE_SIZE // 2
-            py = rows // 2 * TILE_SIZE + TILE_SIZE // 2
+        def make_boss(mdef, idx):
+            # 两个BOSS错开摆放（避免重叠）
+            px = (mx + (1 if idx == 0 else -1)) * TILE_SIZE + TILE_SIZE // 2
+            py = my * TILE_SIZE + TILE_SIZE // 2
             return Monster(name=mdef["name"], monster_type="head_boss",
-                          hp=mdef["hp"], max_hp=mdef["hp"],
-                          attack=mdef["atk"], attack_range=mdef["range"],
-                          attack_cooldown=mdef["cd"],
-                          ranged_attacker=mdef.get("ranged", False),
-                          speed=mdef["speed"], x=float(px), y=float(py))
+                           hp=mdef["hp"], max_hp=mdef["hp"],
+                           attack=mdef["atk"], attack_range=mdef["range"],
+                           attack_cooldown=mdef["cd"],
+                           ranged_attacker=mdef.get("ranged", False),
+                           speed=mdef["speed"], x=float(px), y=float(py))
 
-        for d in [md, rd]:
-            m = make_boss(d)
-            monsters.append(m)
+        for i, d in enumerate([md, rd]):
+            monsters.append(make_boss(d, i))
         return monsters
 
     return monsters

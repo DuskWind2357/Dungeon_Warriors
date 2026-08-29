@@ -8,11 +8,12 @@ import os
 import sys
 from pathlib import Path
 from entities.player import Player
-from entities.item import Weapon, Armor, Consumable
+from entities.item import Weapon, Armor, Consumable, KeyItem
 from systems.revive_system import ReviveSystem
 from data.weapons import WEAPON_BY_NAME
 from data.armor import ARMOR_BY_NAME
 from data.consumables import CONSUMABLE_BY_NAME
+from data.keys import KEY_BY_NAME
 from config import INVENTORY_SIZE
 
 SAVE_FILE = "save.json"
@@ -172,6 +173,8 @@ def _serialize_backpack(backpack: list) -> list:
             result.append({"type": "armor", "name": item.name})
         elif isinstance(item, Consumable):
             result.append({"type": "consumable", "name": item.name})
+        elif isinstance(item, KeyItem):
+            result.append({"type": "key", "name": item.name})
         else:
             result.append(None)
     return result
@@ -192,6 +195,8 @@ def _deserialize_backpack(data: list) -> list:
                 backpack.append(ARMOR_BY_NAME[name])
             elif item_type == "consumable" and isinstance(name, str) and name in CONSUMABLE_BY_NAME:
                 backpack.append(CONSUMABLE_BY_NAME[name])
+            elif item_type == "key" and isinstance(name, str) and name in KEY_BY_NAME:
+                backpack.append(KEY_BY_NAME[name])
             else:
                 backpack.append(None)
         else:

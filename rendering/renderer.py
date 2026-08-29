@@ -21,7 +21,7 @@ from config import (
 )
 from entities.player import Player
 from entities.monster import Monster
-from entities.item import Weapon, Armor, Consumable
+from entities.item import Weapon, Armor, Consumable, KeyItem
 from rendering.pixel_style import draw_progress_bar
 from systems.floor_manager import RoomType
 from utils import resource_path
@@ -508,6 +508,8 @@ def draw_drops(screen: pygame.Surface,
         elif isinstance(item, Armor):
             color = (220,180,40) if item.tier >= 5 and item.armor_type == 'special' else (180,180,180)  # 金色/灰白
             shape = "rect"
+        elif isinstance(item, KeyItem):
+            color = (255, 215, 0); shape = "key"  # V1.0.5.6 藏宝室钥匙=金色
         else:
             continue
 
@@ -522,6 +524,11 @@ def draw_drops(screen: pygame.Surface,
         elif shape == "diamond":
             pts = [(x, y - 5), (x + 5, y), (x, y + 5), (x - 5, y)]
             pygame.draw.polygon(screen, color, pts)
+        elif shape == "key":
+            # V1.0.5.6 钥匙造型：环 + 柄 + 齿
+            pygame.draw.circle(screen, color, (x - 3, y), 3, width=2)
+            pygame.draw.line(screen, color, (x, y), (x + 6, y), 2)
+            pygame.draw.line(screen, color, (x + 4, y), (x + 4, y + 3), 2)
         else:
             rect = pygame.Rect(x - 4, y - 4, 8, 8)
             pygame.draw.rect(screen, color, rect, border_radius=2)

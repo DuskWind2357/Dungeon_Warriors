@@ -63,4 +63,13 @@ class Consumable:
         return f"Consumable({self.name})"
 
 
-Item = Weapon | Armor | Consumable
+@dataclass
+class KeyItem:
+    """钥匙道具（V1.0.5.6：BOSS战掉落，用于解锁特殊宝藏室）"""
+    name: str
+
+    def __repr__(self):
+        return f"KeyItem({self.name})"
+
+
+Item = Weapon | Armor | Consumable | KeyItem

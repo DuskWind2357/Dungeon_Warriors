@@ -21,12 +21,12 @@ from config import (
 )
 from entities.player import Player
 from entities.monster import Monster
-from entities.item import Weapon, Armor, Consumable
+from entities.item import Weapon, Armor, Consumable, KeyItem
 from systems.combat import (
     player_melee_attack, player_ranged_attack,
     projectile_hit_monster, move_toward, is_in_range, monster_attack_player,
 )
-from systems.inventory import add_item
+from systems.inventory import add_item, consume_item
 from systems.floor_manager import (
     generate_floor, spawn_monsters_for_room, spawn_monsters_boss,
     get_floor_type, get_theme, place_traps, FloorLayout, Room, RoomType,
@@ -44,6 +44,7 @@ from rendering.pixel_style import make_toast
 from data.weapons import WEAPON_BY_NAME, WEAPON_BY_TYPE_TIER
 from data.armor import ARMOR_BY_TIER
 from data.consumables import BREAD, POTION_POOL
+from data.keys import TREASURE_KEY
 
 
 class CombatScene:
@@ -92,6 +93,7 @@ class CombatScene:
         self._portal_countdown: dict | None = None
         self._portal_toast: dict | None = None
         self._portal_hint: dict | None = None  # 传送门提示
+        self._unlock_block_travel: bool = False  # V1.0.5.6 解锁当帧阻止按住F直接传送
         self._floor_clear_toast_shown: bool = False  # 楼层通关提示是否已显示
         self.floor_type: str = "battle"
         self._heal_frac: float = 0.0
@@ -131,35 +133,24 @@ class CombatScene:
         self.player.heal_full()
 
         # V1.0.5 根据楼层类型生成地图
-        if self.floor_type in ("boss", "final_boss"):
-            # BOSS楼层：单房间，保持原有逻辑
-            self.grid = [[1] * MAP_COLS for _ in range(MAP_ROWS)]
-            self.spawn_pos = (MAP_COLS // 2, MAP_ROWS // 2)
-            self.portal_pos = None
-            self.floor_layout = None
-            self.current_room = None
-            self.room_monsters = {}
-            self.room_cleared = {}
-            self.grid[self.spawn_pos[1]][self.spawn_pos[0]] = 2
+        # V1.0.5.6：BOSS楼层同为多房间架构（出生点+分支），统一走多房间生成
+        if self.current_floor in self._floor_layout_cache:
+            self.floor_layout, self.room_cleared = self._floor_layout_cache[self.current_floor]
         else:
-            # V1.0.5 战斗楼层：检查缓存，有则使用缓存，无则生成新布局
-            if self.current_floor in self._floor_layout_cache:
-                self.floor_layout, self.room_cleared = self._floor_layout_cache[self.current_floor]
-            else:
-                self.floor_layout = generate_floor(self.current_floor)
-                self.room_cleared = {}
-                self._floor_layout_cache[self.current_floor] = (self.floor_layout, self.room_cleared)
-            
-            self.current_room = self.floor_layout.current_room
-            self.grid = self.current_room.grid
-            self.spawn_pos = self.current_room.spawn_pos
+            self.floor_layout = generate_floor(self.current_floor)
+            self.room_cleared = {}
+            self._floor_layout_cache[self.current_floor] = (self.floor_layout, self.room_cleared)
 
-            # 初始化房间怪物状态
-            self.room_monsters = {}
-            self._room_spawned = {}
-            for room in self.floor_layout.rooms:
-                self.room_monsters[room.room_idx] = []
-                self._room_spawned[room.room_idx] = False
+        self.current_room = self.floor_layout.current_room
+        self.grid = self.current_room.grid
+        self.spawn_pos = self.current_room.spawn_pos
+
+        # 初始化房间怪物状态
+        self.room_monsters = {}
+        self._room_spawned = {}
+        for room in self.floor_layout.rooms:
+            self.room_monsters[room.room_idx] = []
+            self._room_spawned[room.room_idx] = False
 
         self.portal_active = False
         self._floor_clearing = False
@@ -184,6 +175,7 @@ class CombatScene:
         self._portal_target = None
         self._portal_proximity_sound_playing = False
         self._floor_portal_timer = -1.0
+        self._unlock_block_travel = False
 
         # V1.0.5 地狱陷阱
         if self.current_floor >= 21 and self.current_room and self.floor_type not in ("boss", "final_boss"):
@@ -194,8 +186,9 @@ class CombatScene:
         if not self.current_room:
             return
 
-        # 副本房间和宝藏室不刷新怪物
-        if self.current_room.room_type in (RoomType.DUNGEON, RoomType.TREASURE):
+        # 副本房间、宝藏室与特殊宝藏室不刷新怪物
+        if self.current_room.room_type in (RoomType.DUNGEON, RoomType.TREASURE,
+                                           RoomType.SPECIAL_TREASURE):
             self.monsters = []
             self.room_monsters[self.current_room.room_idx] = []
             return
@@ -204,26 +197,28 @@ class CombatScene:
         mod = DIFFICULTY_MODIFIERS.get(self.difficulty, {})
         spawn_mult = mod.get("spawn_mult", 1.0)
 
-        if self.floor_type in ("boss", "final_boss"):
-            # BOSS楼层保持原有逻辑
-            self.monsters = spawn_monsters_boss(
-                self.grid, MAP_COLS, MAP_ROWS,
-                self.floor_type, self.current_floor,
-            )
-        else:
-            # V1.0.5 为当前房间生成怪物
-            room_idx = self.current_room.room_idx
+        room_idx = self.current_room.room_idx
+        if self.current_room.room_type == RoomType.BOSS_BATTLE:
+            # V1.0.5.6 BOSS战房间：头目楼层2名BOSS / 首领楼层高塔之主
             if not self.room_cleared.get(room_idx, False):
-                monsters = spawn_monsters_for_room(
+                monsters = spawn_monsters_boss(
                     self.current_room,
-                    self.current_floor, spawn_mult,
+                    self.floor_type, self.current_floor,
                 )
                 self.room_monsters[room_idx] = monsters
                 self.monsters = list(monsters)
-
-        # BOSS 登场音效
-        if self.floor_type == "final_boss" and self.audio:
-            self.audio.play_boss_appear()
+                # BOSS 登场音效
+                if self.audio:
+                    self.audio.play_boss_appear()
+        elif not self.room_cleared.get(room_idx, False):
+            # V1.0.5 为当前房间生成怪物
+            # V1.0.5.6：BOSS楼层的出生点/增强战斗房间按第一层标准刷怪（floor_manager内处理）
+            monsters = spawn_monsters_for_room(
+                self.current_room,
+                self.current_floor, spawn_mult,
+            )
+            self.room_monsters[room_idx] = monsters
+            self.monsters = list(monsters)
 
         # 应用难度修饰（移速、冷却）
         spd_mul = mod.get("speed_mult", 1.0)
@@ -474,46 +469,10 @@ class CombatScene:
         # 怪物
         self._update_monsters(dt)
 
-        # 传送门
-        if self.floor_type in ("boss", "final_boss"):
-            # BOSS楼层保持原有逻辑
-            if self.monsters:
-                alive = [m for m in self.monsters if m.is_alive()]
-                if not alive:
-                    if not self.portal_active and self.audio:
-                        self.audio.play_portal_appear()
-                    self.portal_active = True
-
-            if self.portal_active and self.portal_pos:
-                px = self.portal_pos[0] * TILE_SIZE + TILE_SIZE // 2
-                py = self.portal_pos[1] * TILE_SIZE + TILE_SIZE // 2
-                in_portal = math.sqrt((self.player.x - px)**2 + (self.player.y - py)**2) < TILE_SIZE
-                if in_portal:
-                    empty = sum(1 for s in self.backpack if s is None)
-                    if empty <= 1:
-                        msg = "背包已满，无法传送！" if empty == 0 else "背包将满，无法传送！"
-                        self._portal_toast = make_toast(msg)
-                        self._floor_portal_timer = -1
-                    else:
-                        self._portal_toast = None
-                        if self._floor_portal_timer < 0:
-                            self._floor_portal_timer = 0.0
-                        self._floor_portal_timer = round(self._floor_portal_timer + dt, 2)
-                        sec = max(1, int(FLOOR_PORTAL_TRAVEL_DELAY) - int(self._floor_portal_timer))
-                        self._portal_countdown = make_toast(f"{sec} 秒后传送至下一楼层......")
-                        if self._floor_portal_timer >= FLOOR_PORTAL_TRAVEL_DELAY:
-                            self._floor_portal_timer = -1
-                            self._portal_countdown = None
-                            return self._on_floor_clear()
-                else:
-                    self._floor_portal_timer = -1
-                    self._portal_countdown = None
-                    self._portal_toast = None
-        else:
-            # V1.0.5 多房间传送门系统
-            result = self._update_portals(dt)
-            if result:
-                return result
+        # 传送门（V1.0.5.6：BOSS楼层同为多房间架构，统一走多房间传送门系统）
+        result = self._update_portals(dt)
+        if result:
+            return result
 
         if not self.player.is_alive():
             return "death"
@@ -585,22 +544,38 @@ class CombatScene:
 
         active_portal = nearby_portal or standing_on_portal
 
-        # 检查是否是宝藏室传送门
-        is_treasure_portal = False
+        # 解锁阻断：F键松开时清除（解锁当帧不允许按住F直接传送）
+        if not pygame.key.get_pressed()[pygame.K_f]:
+            self._unlock_block_travel = False
+
+        # V1.0.5.6 传送门准入检查（宝藏室/BOSS战房间封印、特殊宝藏室上锁）
         if active_portal:
             target_room = self.floor_layout.get_room_by_idx(active_portal.target_room_idx)
             if target_room and target_room.room_type == RoomType.TREASURE:
-                is_treasure_portal = True
                 # 检查当前房间是否已清理
                 if not self.room_cleared.get(self.current_room.room_idx, False):
                     # 未完成战斗，宝藏室传送门被封印
-                    self._portal_hint = make_toast("传送门已被封印", color=(255, 60, 60))
-                    self._portal_proximity_sound_playing = False
-                    if self._portal_timer > 0:
-                        self._portal_timer = -1.0
-                        self._portal_target = None
-                        self._portal_countdown = None
+                    self._portal_hint = make_toast("传送门已被封印！", color=(255, 60, 60))
+                    self._block_portal_use()
                     return None
+            elif target_room and target_room.room_type == RoomType.BOSS_BATTLE:
+                # 需清空出生点与全部增强战斗房间，方可进入BOSS战房间
+                if not self._boss_room_reachable():
+                    self._portal_hint = make_toast("传送门已被封印！", color=(255, 60, 60))
+                    self._block_portal_use()
+                    return None
+            elif (target_room and target_room.room_type == RoomType.SPECIAL_TREASURE
+                    and not target_room.unlocked):
+                # 特殊宝藏室：需BOSS战掉落的钥匙解锁
+                has_key = any(isinstance(s, KeyItem) for s in self.backpack)
+                if has_key:
+                    self._portal_hint = make_toast("按F键解锁", color=(200, 100, 255))
+                    if pygame.key.get_pressed()[pygame.K_f]:
+                        self._unlock_special_treasure(target_room)
+                    return None
+                self._portal_hint = make_toast("传送门已上锁！", color=(255, 60, 60))
+                self._block_portal_use()
+                return None
 
         # 显示传送门提示（普通传送门和已解锁的宝藏室传送门都可交互）
         if active_portal and not active_portal.is_floor_portal:
@@ -625,8 +600,10 @@ class CombatScene:
                 self._portal_target = None
                 self._portal_countdown = None
 
-        # 处理F键传送（房间间传送门，包括已解锁的宝藏室传送门）
-        if active_portal and not active_portal.is_floor_portal and pygame.key.get_pressed()[pygame.K_f]:
+        # 处理F键传送（房间间传送门，包括已解锁的宝藏室/特殊宝藏室传送门）
+        if (active_portal and not active_portal.is_floor_portal
+                and not self._unlock_block_travel
+                and pygame.key.get_pressed()[pygame.K_f]):
             if self._portal_timer < 0:
                 self._portal_timer = 0.0
                 self._portal_target = active_portal
@@ -684,6 +661,38 @@ class CombatScene:
                 self.portal_active = False
 
         return None
+
+    def _block_portal_use(self) -> None:
+        """封印/上锁传送门：中断进行中的传送并停止接近音效"""
+        self._portal_proximity_sound_playing = False
+        if self._portal_timer > 0:
+            self._portal_timer = -1.0
+            self._portal_target = None
+            self._portal_countdown = None
+
+    def _boss_room_reachable(self) -> bool:
+        """V1.0.5.6 BOSS战房间解锁条件：出生点与全部增强战斗房间已清空"""
+        if not self.floor_layout:
+            return False
+        for room in self.floor_layout.rooms:
+            if room.room_type in (RoomType.SPAWN, RoomType.ENHANCED_BATTLE):
+                if not self.room_cleared.get(room.room_idx, False):
+                    return False
+        return True
+
+    def _unlock_special_treasure(self, room: Room) -> None:
+        """V1.0.5.6 消耗钥匙解锁特殊宝藏房间（解锁后与普通传送门同一套音效和交互）"""
+        if room.unlocked:
+            return
+        if not consume_item(self.backpack, TREASURE_KEY):
+            return
+        room.unlocked = True
+        self._unlock_block_travel = True
+        self._portal_hint = None
+        if self.audio:
+            self.audio.play_portal_trigger()
+        t = make_toast("特殊宝藏房间已解锁！", color=(255, 215, 0), duration=3.0)
+        self.toasts.append(t)
 
     def _check_portal_proximity(self, col: int, row: int):
         """检查玩家是否紧靠传送门，返回最近的Portal对象"""
@@ -743,30 +752,36 @@ class CombatScene:
         self._portal_countdown = None
         self._portal_proximity_sound_playing = False
 
-        # 如果是战斗房间且未清理，立即刷新怪物（副本房间不刷新怪物）
-        if target_room.room_type == RoomType.BATTLE and not self.room_cleared.get(target_room.room_idx, False):
+        # 战斗类房间未清理时，进入即刷新怪物（副本/宝藏/特殊宝藏不刷新）
+        if (target_room.room_type in (RoomType.BATTLE, RoomType.ENHANCED_BATTLE,
+                                      RoomType.BOSS_BATTLE)
+                and not self.room_cleared.get(target_room.room_idx, False)):
             if not self.monsters:
                 self._spawn_monsters_for_current_room()
 
     def _is_floor_cleared(self) -> bool:
-        """V1.0.5 检查楼层是否已通关（所有战斗/出生点房间怪物清空，副本/宝藏室不参与判定）"""
+        """V1.0.5 检查楼层是否已通关（战斗类房间全部清空；副本/宝藏/特殊宝藏不参与判定）"""
         if not self.floor_layout:
             return False
 
         for room in self.floor_layout.rooms:
-            # 副本房间和宝藏室不参与通关判定
-            if room.room_type in (RoomType.DUNGEON, RoomType.TREASURE):
+            # 副本房间、宝藏室与特殊宝藏室不参与通关判定
+            if room.room_type in (RoomType.DUNGEON, RoomType.TREASURE,
+                                  RoomType.SPECIAL_TREASURE):
                 continue
-            if room.room_type in (RoomType.SPAWN, RoomType.BATTLE):
+            if room.room_type in (RoomType.SPAWN, RoomType.BATTLE,
+                                  RoomType.ENHANCED_BATTLE, RoomType.BOSS_BATTLE):
                 if not self.room_cleared.get(room.room_idx, False):
                     return False
         return True
 
     def _check_spawn_zone(self, dt: float) -> None:
-        """V1.0.5 安全区：离开后立即消失，不再重生"""
-        if self.floor_type in ("boss", "final_boss"):
-            # BOSS楼层保持原有逻辑
-            if self.monsters:
+        """V1.0.5 安全区：离开后立即消失，不再重生
+        V1.0.5.6：BOSS楼层同为多房间架构，统一走多房间逻辑
+        """
+        if self.current_room and self.current_room.room_type == RoomType.SPAWN:
+            room_idx = self.current_room.room_idx
+            if self._room_spawned.get(room_idx, False):
                 self.in_spawn_zone = False
                 return
 
@@ -784,37 +799,11 @@ class CombatScene:
                     self._spawn_toast = make_toast(f"怪物将在 {sec} 秒后出现")
                     if self.spawn_timer <= 0:
                         self._spawn_monsters_for_current_room()
+                        self._room_spawned[room_idx] = True
                         self.spawn_timer = -1
                         self._spawn_toast = None
             else:
                 self.in_spawn_zone = True
-        else:
-            # V1.0.5 多房间系统
-            if self.current_room and self.current_room.room_type == RoomType.SPAWN:
-                room_idx = self.current_room.room_idx
-                if self._room_spawned.get(room_idx, False):
-                    self.in_spawn_zone = False
-                    return
-
-                sx = self.spawn_pos[0] * TILE_SIZE + TILE_SIZE // 2
-                sy = self.spawn_pos[1] * TILE_SIZE + TILE_SIZE // 2
-                dist = math.sqrt((self.player.x - sx)**2 + (self.player.y - sy)**2)
-
-                if dist >= TILE_SIZE * 2:
-                    self.in_spawn_zone = False
-                    if self.spawn_timer < 0:
-                        self.spawn_timer = SPAWN_DELAY_SEC
-                    else:
-                        self.spawn_timer = round(self.spawn_timer - dt, 2)
-                        sec = max(1, int(self.spawn_timer) + 1)
-                        self._spawn_toast = make_toast(f"怪物将在 {sec} 秒后出现")
-                        if self.spawn_timer <= 0:
-                            self._spawn_monsters_for_current_room()
-                            self._room_spawned[room_idx] = True
-                            self.spawn_timer = -1
-                            self._spawn_toast = None
-                else:
-                    self.in_spawn_zone = True
 
     def _update_projectiles(self) -> None:
         to_remove = []
@@ -1302,6 +1291,12 @@ class CombatScene:
 
         elif mtype == "head_boss":
             self._drop_better_equip(monster)
+            # V1.0.5.6 头目楼层BOSS战必掉一把藏宝室钥匙（两名BOSS仅掉落一次）
+            if self.floor_type == "boss":
+                key_dropped = any(isinstance(it, KeyItem) for it, _, _ in self.drops.get(room_idx, []))
+                has_key = any(isinstance(s, KeyItem) for s in self.backpack)
+                if not key_dropped and not has_key:
+                    self._add_drop(room_idx, (TREASURE_KEY, mx, my + 15))
             if random.random() < DROP_BOSS_BREAD:
                 self._add_drop(room_idx, (BREAD, mx + 5, my + 5))
             if random.random() < DROP_BOSS_POTION:
@@ -1392,6 +1387,10 @@ class CombatScene:
         item = room_drops[closest_idx][0]
         if add_item(self.backpack, item):
             room_drops.pop(closest_idx)
+            # V1.0.5.6 钥匙拾取提示
+            if isinstance(item, KeyItem):
+                t = make_toast("获得 藏宝室钥匙！", color=(255, 215, 0), duration=3.0)
+                self.toasts.append(t)
 
     def _add_drop(self, room_idx: int, drop: tuple) -> None:
         """向指定房间添加掉落物"""

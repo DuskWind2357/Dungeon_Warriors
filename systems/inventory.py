@@ -59,6 +59,18 @@ def add_item(backpack: list[Item | None], item: Item) -> bool:
     return True
 
 
+def consume_item(backpack: list[Item | None], item: Item) -> bool:
+    """移除背包中第一个匹配物品（类型+名称），成功返回 True（V1.0.5.6 钥匙消耗）"""
+    if item is None:
+        return False
+    target_name = getattr(item, "name", None)
+    for i, s in enumerate(backpack):
+        if s is not None and type(s) is type(item) and getattr(s, "name", None) == target_name:
+            backpack[i] = None
+            return True
+    return False
+
+
 def remove_item(backpack: list[Item | None], slot_index: int) -> Item | None:
     """从指定格子移除物品并返回"""
     if 0 <= slot_index < INVENTORY_SIZE:

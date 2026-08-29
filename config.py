@@ -83,13 +83,40 @@ BATTLE_ELITE_MAX = 3        # 默认: 最多3名精英
 PORTAL_MIN_EDGE_DIST = 6      # 传送门距边缘最小距离（格）
 PORTAL_COUNT_MIN = 2          # 出生点房间传送门数量下限
 PORTAL_COUNT_MAX = 4          # 出生点房间传送门数量上限
-DUNGEON_ROOM_CHANCE = 0.50    # 副本房间概率（调试用，上调至50%）
-TREASURE_ROOM_CHANCE = 0.20   # 战斗房间额外连接宝藏房间概率（已废弃，使用90%）
-TREASURE_ROOM_CHANCE_BATTLE = 0.90  # 战斗房间宝藏室刷新概率
-TREASURE_ROOM_DUNGEON_CHANCE = 1.0  # 副本房间宝藏室刷新概率
+DUNGEON_ROOM_CHANCE = 0.50    # 副本房间概率（调试用，已由分段表 DUNGEON_ROOM_CHANCES 取代）
+TREASURE_ROOM_CHANCE = 0.20   # 战斗房间额外连接宝藏房间概率（已废弃）
+TREASURE_ROOM_CHANCE_BATTLE = 0.10  # 战斗房间宝藏室刷新概率（V1.0.5.6：10%）
+TREASURE_ROOM_DUNGEON_CHANCE = 0.60  # 副本房间宝藏室刷新概率（V1.0.5.6：60%）
 PORTAL_TRAVEL_DELAY = 4.0     # 传送倒计时（秒）
 FLOOR_PORTAL_TRAVEL_DELAY = 5.0  # 通往下一楼层传送倒计时（秒）
 ROOM_IDLE_SOUND_INTERVAL = 3.0  # 房间环境音播放间隔（秒）
+
+# ============================================================
+# V1.0.5.6 战斗楼层分支规则（等概率取一）
+# ============================================================
+# (floor_min, floor_max) -> 可选的该段分支数（等概率随机取一个）
+BRANCH_COUNTS: dict[tuple[int, int], list[int]] = {
+    (1, 5):   [1, 2],
+    (6, 9):   [1, 2, 3],
+    (11, 19): [2, 3, 4],
+    (21, 29): [3, 4],
+}
+# 各段副本生成概率（逐分支判定）
+DUNGEON_ROOM_CHANCES: dict[tuple[int, int], float] = {
+    (1, 5):   0.0,
+    (6, 9):   0.10,
+    (11, 19): 0.20,
+    (21, 29): 0.40,
+}
+# 各段每层副本数量上限（超限副本自动替换为战斗房间）
+DUNGEON_MAX_PER_FLOOR: dict[tuple[int, int], int] = {
+    (1, 5):   0,
+    (6, 9):   1,
+    (11, 19): 1,
+    (21, 29): 2,
+}
+# BOSS 战斗楼层出生点房间固定分支数
+BOSS_BRANCH_COUNT = 4
 
 # ============================================================
 # 奖励系统
