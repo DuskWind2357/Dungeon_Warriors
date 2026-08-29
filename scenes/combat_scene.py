@@ -8,7 +8,7 @@ import random
 import pygame
 from config import (
     TILE_SIZE, MAP_COLS, MAP_ROWS, FPS, SPAWN_DELAY_SEC,
-    PLAYER_BASE_SPEED, GLOBAL_SPEED_MULT,
+    PLAYER_BASE_SPEED,
     PROJECTILE_SPEED, PROJECTILE_RANGE, PROJECTILE_SIZE,
     ENEMY_ARROW_SPEED, ENEMY_ARROW_RANGE,
     FIREBALL_SPEED, FIREBALL_RANGE,
@@ -60,7 +60,8 @@ class CombatScene:
                  monsters_killed: int = 0,
                  audio_manager: AudioManager | None = None,
                  difficulty: str = "easy",
-                 floor_layout_cache: dict | None = None) -> None:
+                 floor_layout_cache: dict | None = None,
+                 auto_destroy: bool = False) -> None:
         self.player = player
         self.backpack = backpack
         self.revive_system = revive_system
@@ -68,6 +69,7 @@ class CombatScene:
         self.monsters_killed = monsters_killed
         self.audio = audio_manager
         self.difficulty = difficulty
+        self.auto_destroy = auto_destroy
 
         # 楼层数据
         self.grid: list[list[int]] = []
@@ -972,7 +974,7 @@ class CombatScene:
                 monster.skill_cd = 20.0; self.toasts.append(make_toast(f'{monster.name} 三连箭！'))
             # 暗影骑士: >3格 → 冲刺(1秒×2速)
             elif '暗影骑士' in monster.name and '暗黑' not in monster.name and monster.skill_cd <= 0 and dist_to_player > TILE_SIZE*3:
-                monster._orig_spd = monster.speed; monster.speed = int(monster.speed*2)
+                monster._orig_spd = monster.speed; monster.speed = monster.speed*2
                 monster.skill_cd = 20.0; monster._dash_timer = 1.0
                 self.toasts.append(make_toast('暗影骑士 冲刺！'))
             # 冲刺恢复
@@ -1020,7 +1022,7 @@ class CombatScene:
                     if not self._collides_wall(monster.x, ny): monster.y = ny
                 # 玩家距离<2格时以50%速度远离（除首领外）
                 if dist_p < TILE_SIZE * 2 and monster.monster_type != 'final_boss':
-                    flee_spd = max(1, int(monster.speed * 0.5))
+                    flee_spd = max(1, monster.speed * 0.5)
                     nx, ny = move_toward(monster.x, monster.y,
                                          self.player.x, self.player.y, -flee_spd)
                     if not self._collides_wall(nx, monster.y): monster.x = nx
@@ -1113,7 +1115,6 @@ class CombatScene:
 
     def _move_with_astar(self, monster, goal_grid, speed, dt):
         """统一的 A* 移动：有路径沿路径走，无路径则规划。goal_grid=None 表示徘徊"""
-        speed *= GLOBAL_SPEED_MULT  # 全局移速缩放
         path = getattr(monster, '_path', None)
         recalc = getattr(monster, '_recalc', 0)
         retry = getattr(monster, '_retry', 0)
@@ -1186,7 +1187,7 @@ class CombatScene:
     def _handle_movement(self) -> None:
         keys = pygame.key.get_pressed()
         dx, dy = 0.0, 0.0
-        spd = self.player.total_speed() * GLOBAL_SPEED_MULT
+        spd = self.player.total_speed()
         if keys[pygame.K_w] or keys[pygame.K_UP]:
             dy -= spd
         if keys[pygame.K_s] or keys[pygame.K_DOWN]:

@@ -156,6 +156,7 @@ class Game:
             audio_manager=self.audio,
             difficulty=self.difficulty,
             floor_layout_cache=self.floor_layout_cache,
+            auto_destroy=self.auto_destroy,
         )
         self.scene = "combat"
 

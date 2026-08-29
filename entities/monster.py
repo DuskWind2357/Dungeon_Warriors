@@ -22,7 +22,7 @@ class Monster:
     x: float = 0.0
     y: float = 0.0
     cooldown_remaining: float = 0.0   # 当前剩余冷却（秒）
-    speed: int = MONSTER_SPEED
+    speed: float = MONSTER_SPEED
     alive: bool = True
     aggro: bool = False       # 是否已进入战斗状态
 

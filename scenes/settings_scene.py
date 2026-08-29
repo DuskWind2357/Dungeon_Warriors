@@ -128,9 +128,7 @@ class SettingsScene:
 
         # 当前难度描述
         mod = DIFFICULTY_MODIFIERS.get(self.current, {})
-        desc = (f"怪物移速: {mod.get('speed_mult', 1.0)*100:.0f}%  |  "
-                f"攻击冷却: {mod.get('cd_mult', 1.0)*100:.0f}%  |  "
-                f"刷怪倍率: {mod.get('spawn_mult', 1.0):.1f}x")
+        desc = f"刷怪倍率: {mod.get('spawn_mult', 1.0):.2f}x"
         desc_surf = font_hint.render(desc, True, COLOR_TEXT_DIM)
         screen.blit(desc_surf, desc_surf.get_rect(center=(cx, 480)))
 
