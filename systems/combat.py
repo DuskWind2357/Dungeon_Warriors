@@ -1,11 +1,11 @@
 """
-Dungeon Warriors v2.0 — 战斗系统
+Dungeon Warriors V1.0.5.8 — 战斗系统（平衡性重做）
 武器类型分发、连击、暴击、秒杀、移动限制、伤害减免
 """
 
 import math
 import random
-from config import MONSTER_DETECT_RANGE, TILE_SIZE
+from config import MONSTER_DETECT_RANGE, TILE_SIZE, PROJECTILE_SPEED, PROJECTILE_RANGE
 from entities.player import Player
 from entities.monster import Monster
 
@@ -120,7 +120,7 @@ def player_ranged_attack(player: Player,
         dx, dy = 1.0, 0.0
         dist = 1.0
 
-    from config import PROJECTILE_SPEED
+    from config import PROJECTILE_SPEED, PROJECTILE_RANGE
     vx = (dx / dist) * PROJECTILE_SPEED
     vy = (dy / dist) * PROJECTILE_SPEED
 
@@ -139,6 +139,8 @@ def player_ranged_attack(player: Player,
             'damage': atk,
             'traveled': 0.0,
             'weapon': weapon,
+            'speed': PROJECTILE_SPEED,
+            'range': PROJECTILE_RANGE,
         })
     return projectiles
 

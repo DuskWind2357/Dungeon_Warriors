@@ -1,5 +1,5 @@
 """
-Dungeon Warriors V1.0.5 — 楼层管理器
+Dungeon Warriors V1.0.5.8 — 楼层管理器（平衡性重做）
 多房间楼层架构：每个房间是独立的20×15网格，切换时整个画面变化
 """
 
@@ -13,10 +13,9 @@ from config import (
     MONSTER_SCALE_PER_FLOOR,
     MONSTER_PER_5_FLOORS_HP, MONSTER_PER_5_FLOORS_ATK,
     PORTAL_MIN_EDGE_DIST, PORTAL_COUNT_MIN, PORTAL_COUNT_MAX,
-    DUNGEON_ROOM_CHANCE, TREASURE_ROOM_CHANCE,
     BRANCH_COUNTS, DUNGEON_ROOM_CHANCES, DUNGEON_MAX_PER_FLOOR,
     BOSS_BRANCH_COUNT,
-    TREASURE_ROOM_CHANCE_BATTLE, TREASURE_ROOM_DUNGEON_CHANCE,
+    DIFFICULTY_MODIFIERS,
 )
 from entities.monster import Monster
 from data.monsters import (
@@ -146,14 +145,15 @@ def _opposite_side(side: str) -> str:
 # 楼层生成
 # ============================================================
 
-def generate_floor(floor_num: int = 1) -> FloorLayout:
-    """V1.0.5 生成完整楼层布局
+def generate_floor(floor_num: int = 1, difficulty: str = "easy") -> FloorLayout:
+    """V1.0.5.8 生成完整楼层布局（平衡性重做）
     每个房间是独立的20×15网格
+    difficulty: 难度参数，影响宝藏室生成概率
     """
     floor_type = get_floor_type(floor_num)
 
     if floor_type in ("boss", "final_boss"):
-        return _generate_boss_floor(floor_num, floor_type)
+        return _generate_boss_floor(floor_num, floor_type, difficulty)
 
     # V1.0.5.6 按楼层段等概率取分支数
     branch_counts, dchance, dmax = _get_band_spec(floor_num)
@@ -185,7 +185,7 @@ def generate_floor(floor_num: int = 1) -> FloorLayout:
         _generate_room_grid(room)
         rooms.append(room)
 
-    _connect_rooms_with_portals(rooms)
+    _connect_rooms_with_portals(rooms, difficulty=difficulty)
 
     floor_portal_pos = _place_floor_portal(rooms)
     floor_portal_room_idx = None
@@ -210,10 +210,11 @@ def _get_band_spec(floor_num: int) -> tuple[list[int], float, int]:
     return [2], 0.0, 0
 
 
-def _generate_boss_floor(floor_num: int, floor_type: str) -> FloorLayout:
+def _generate_boss_floor(floor_num: int, floor_type: str, difficulty: str = "easy") -> FloorLayout:
     """V1.0.5.6 BOSS战斗楼层：多房间（出生点 + 分支）
     头目楼层(10/20)：1 BOSS战 + 2 增强战斗 + 1 特殊宝藏
     首领楼层(30)：  1 BOSS战 + 3 增强战斗
+    difficulty: 难度参数
     """
     rooms: list[Room] = []
 
@@ -241,7 +242,7 @@ def _generate_boss_floor(floor_num: int, floor_type: str) -> FloorLayout:
 
     # 出生点固定 4 分支，各分支仅与出生点相通（增强战斗房间之间不互通）
     _connect_rooms_with_portals(rooms, force_count=BOSS_BRANCH_COUNT,
-                                with_treasure=False)
+                                with_treasure=False, difficulty=difficulty)
 
     floor_portal_pos = _place_floor_portal(rooms)
     floor_portal_room_idx = None
@@ -299,10 +300,12 @@ def _add_random_walls(grid: list[list[int]], room: Room,
 
 def _connect_rooms_with_portals(rooms: list[Room],
                                 force_count: int | None = None,
-                                with_treasure: bool = True) -> None:
+                                with_treasure: bool = True,
+                                difficulty: str = "easy") -> None:
     """在房间之间建立传送门连接
     force_count: 指定传送门/分支数（BOSS楼层出生点固定 4 分支）
     with_treasure: 是否为本楼层战斗房间/副本额外连接宝藏室（增强战斗/特殊宝藏房间不生成）
+    difficulty: 难度参数，影响宝藏室生成概率
     """
     spawn_room = rooms[0]
     branch_rooms = rooms[1:]
@@ -354,7 +357,7 @@ def _connect_rooms_with_portals(rooms: list[Room],
 
     # 为战斗房间/副本生成宝藏室（BOSS楼层的增强战斗/特殊宝藏房间不生成）
     if with_treasure:
-        _generate_treasure_rooms(rooms)
+        _generate_treasure_rooms(rooms, difficulty)
 
 
 def _place_portal_on_grid(room: Room, portal: Portal) -> None:
@@ -400,16 +403,21 @@ def _is_portal_adjacent(portal1: Portal, portal2: Portal) -> bool:
     return False
 
 
-def _generate_treasure_rooms(rooms: list[Room]) -> None:
-    """为战斗房间/副本生成宝藏室"""
-    from config import TREASURE_ROOM_CHANCE_BATTLE, TREASURE_ROOM_DUNGEON_CHANCE
+def _generate_treasure_rooms(rooms: list[Room], difficulty: str = "easy") -> None:
+    """为战斗房间/副本生成宝藏室（V1.0.5.8 使用难度相关概率）"""
+    from config import DIFFICULTY_MODIFIERS
+    
+    # 获取难度相关的宝藏室概率
+    diff_mod = DIFFICULTY_MODIFIERS.get(difficulty, DIFFICULTY_MODIFIERS["easy"])
+    treasure_chance_battle = diff_mod["treasure_room_chance_battle"]
+    treasure_chance_dungeon = diff_mod["treasure_room_chance_dungeon"]
     
     for room in rooms[1:]:  # 跳过出生点房间
         # 确定宝藏室刷新概率
         if room.room_type == RoomType.DUNGEON:
-            chance = TREASURE_ROOM_DUNGEON_CHANCE
+            chance = treasure_chance_dungeon
         elif room.room_type == RoomType.BATTLE:
-            chance = TREASURE_ROOM_CHANCE_BATTLE
+            chance = treasure_chance_battle
         else:
             continue
         
@@ -518,29 +526,46 @@ def _place_floor_portal(rooms: list[Room]) -> tuple[int, int] | None:
 # ============================================================
 
 def spawn_monsters_for_room(room: Room, floor_num: int,
-                            spawn_mult: float = 1.0) -> list[Monster]:
-    """为指定房间生成怪物"""
+                            difficulty: str = "easy") -> list[Monster]:
+    """为指定房间生成怪物（V1.0.5.8 平衡性重做）
+    difficulty: "easy" / "normal" / "hard"
+    """
     monsters = []
 
+    # 获取难度参数
+    diff_mod = DIFFICULTY_MODIFIERS.get(difficulty, DIFFICULTY_MODIFIERS["easy"])
+    spawn_mult = diff_mod["spawn_mult"]
+    hp_scale = diff_mod["hp_scale_per_floor"]
+    atk_scale = diff_mod["atk_scale_per_floor"]
+    cd_scale = diff_mod["cd_scale_per_floor"]
+    elite_extra_mult = diff_mod["elite_extra_mult"]
+
     # BOSS楼层的出生点/增强战斗房间：按第一层标准刷怪（V1.0.5.6）
+    actual_floor = floor_num
     if room.room_type in (RoomType.SPAWN, RoomType.ENHANCED_BATTLE):
         if get_floor_type(floor_num) in ("boss", "final_boss"):
-            floor_num = 1
+            actual_floor = 1
 
-    scale = MONSTER_SCALE_PER_FLOOR ** (floor_num - 1)
-    fb = (floor_num - 1) // 5
+    # V1.0.5.8 线性缩放（取代指数缩放）
+    hp_mult = hp_scale ** (actual_floor - 1)
+    atk_mult = atk_scale ** (actual_floor - 1)
+    cd_mult = cd_scale ** (actual_floor - 1)
 
-    if floor_num <= 4:
+    # 刷怪数量表（V1.0.5.8 设计文档）
+    if actual_floor <= 4:
         n_count, e_count = 6, 2
-    elif floor_num <= 9:
-        n_count, e_count = 8, 2
-    elif floor_num <= 19:
+    elif actual_floor <= 9:
+        n_count, e_count = 8, 3
+    elif actual_floor <= 19:
         n_count, e_count = 12, 4
     else:
         n_count, e_count = 18, 6
 
+    # 冒险/末日难度额外精英
+    extra_elites = int(e_count * elite_extra_mult)
+
     nc = max(1, int(n_count * spawn_mult))
-    ec = max(0, int(e_count * spawn_mult))
+    ec = max(0, int((e_count + extra_elites) * spawn_mult))
 
     # 获取可行走位置（排除出生点和传送门）
     valid = []
@@ -568,20 +593,24 @@ def spawn_monsters_for_room(room: Room, floor_num: int,
         px = col * TILE_SIZE + TILE_SIZE // 2
         py = row * TILE_SIZE + TILE_SIZE // 2
         if mtype in ("normal", "elite"):
-            hp = int(mdef["hp"] * scale) + fb * MONSTER_PER_5_FLOORS_HP
-            atk = int(mdef["atk"] * scale) + fb * MONSTER_PER_5_FLOORS_ATK
+            hp = int(mdef["hp"] * hp_mult)
+            atk = int(mdef["atk"] * atk_mult)
+            cd = mdef["cd"] * cd_mult
         else:
-            hp, atk = mdef["hp"], mdef["atk"]
+            hp, atk, cd = mdef["hp"], mdef["atk"], mdef["cd"]
         return Monster(name=mdef["name"], monster_type=mtype,
                       hp=hp, max_hp=hp, attack=atk,
-                      attack_range=mdef["range"], attack_cooldown=mdef["cd"],
+                      attack_range=mdef["range"], attack_cooldown=cd,
                       ranged_attacker=mdef.get("ranged", False),
-                      speed=mdef["speed"], x=float(px), y=float(py))
+                      speed=mdef["speed"], x=float(px), y=float(py),
+                      wither=mdef.get("wither", 0.0), frost=mdef.get("frost", 0.0),
+                      burn=mdef.get("burn", 0.0), burn_dmg=mdef.get("burn_dmg", 0),
+                      fireball=mdef.get("fireball", 0), fire_interval=mdef.get("fire_interval", 0.0))
 
     # 精英怪池
-    if floor_num <= 9:
+    if actual_floor <= 9:
         elite_pool = [e for e in ELITE_MONSTERS if e["name"] in ("精英僵尸", "精英骷髅")]
-    elif floor_num <= 19:
+    elif actual_floor <= 19:
         elite_pool = SNOW_ELITE_MONSTERS
     else:
         snow_names = {e["name"] for e in SNOW_ELITE_MONSTERS}
@@ -611,11 +640,11 @@ def spawn_monsters_for_room(room: Room, floor_num: int,
                 old = monsters[i]
                 monsters[i] = Monster(
                     name=replacement["name"], monster_type="normal",
-                    hp=int(replacement["hp"] * scale) + fb * MONSTER_PER_5_FLOORS_HP,
-                    max_hp=int(replacement["hp"] * scale) + fb * MONSTER_PER_5_FLOORS_HP,
-                    attack=int(replacement["atk"] * scale) + fb * MONSTER_PER_5_FLOORS_ATK,
+                    hp=int(replacement["hp"] * hp_mult),
+                    max_hp=int(replacement["hp"] * hp_mult),
+                    attack=int(replacement["atk"] * atk_mult),
                     attack_range=replacement["range"],
-                    attack_cooldown=replacement["cd"],
+                    attack_cooldown=replacement["cd"] * cd_mult,
                     ranged_attacker=replacement.get("ranged", False),
                     speed=replacement["speed"],
                     x=old.x, y=old.y)
@@ -626,24 +655,39 @@ def spawn_monsters_for_room(room: Room, floor_num: int,
 
 def spawn_monsters_boss(room: Room,
                         floor_type: str,
-                        floor_num: int) -> list[Monster]:
-    """BOSS战房间怪物生成（V1.0.5.6）
+                        floor_num: int,
+                        difficulty: str = "easy") -> list[Monster]:
+    """BOSS战房间怪物生成（V1.0.5.8 平衡性重做）
     头目楼层(10/20)：随机 2 名头目BOSS（近战+远程各一）
     首领楼层(30)：  固定 高塔之主
+    difficulty: 应用BOSS难度修饰
     """
     monsters = []
     mx = MAP_COLS // 2
     my = MAP_ROWS // 2
 
+    # 获取难度参数
+    diff_mod = DIFFICULTY_MODIFIERS.get(difficulty, DIFFICULTY_MODIFIERS["easy"])
+    boss_cd_mult = diff_mod["boss_cd_mult"]
+    boss_skill_cd_mult = diff_mod["boss_skill_cd_mult"]
+    boss_atk_mult = diff_mod["boss_atk_mult"]
+    boss_hp_mult = diff_mod["boss_hp_mult"]
+
     if floor_type == "final_boss":
         fb_data = FINAL_BOSS
         px = mx * TILE_SIZE + TILE_SIZE // 2
         py = my * TILE_SIZE + TILE_SIZE // 2
+        hp = int(fb_data["hp"] * boss_hp_mult)
+        atk_p1 = int(fb_data["atk_p1"] * boss_atk_mult)
+        atk_p2 = int(fb_data["atk_p2"] * boss_atk_mult)
+        cd_p1 = fb_data["cd_p1"] * boss_cd_mult
+        cd_p2 = fb_data["cd_p2"] * boss_cd_mult
         m = Monster(name=fb_data["name"], monster_type="final_boss",
-                    hp=fb_data["hp"], max_hp=fb_data["hp"],
-                    attack=fb_data["atk_p1"], attack_range=fb_data["range"],
-                    attack_cooldown=fb_data["cd_p1"], speed=fb_data["speed_p1"],
-                    x=float(px), y=float(py))
+                    hp=hp, max_hp=hp,
+                    attack=atk_p1, attack_range=fb_data["range"],
+                    attack_cooldown=cd_p1, speed=fb_data["speed_p1"],
+                    x=float(px), y=float(py),
+                    detect_range=fb_data["detect"])
         monsters.append(m)
         return monsters
 
@@ -652,15 +696,27 @@ def spawn_monsters_boss(room: Room,
         rd = random.choice(HEAD_BOSS_RANGED)
 
         def make_boss(mdef, idx):
-            # 两个BOSS错开摆放（避免重叠）
             px = (mx + (1 if idx == 0 else -1)) * TILE_SIZE + TILE_SIZE // 2
             py = my * TILE_SIZE + TILE_SIZE // 2
+            hp = int(mdef["hp"] * boss_hp_mult)
+            atk = int(mdef["atk"] * boss_atk_mult)
+            cd = mdef["cd"] * boss_cd_mult
             return Monster(name=mdef["name"], monster_type="head_boss",
-                           hp=mdef["hp"], max_hp=mdef["hp"],
-                           attack=mdef["atk"], attack_range=mdef["range"],
-                           attack_cooldown=mdef["cd"],
+                           hp=hp, max_hp=hp,
+                           attack=atk, attack_range=mdef["range"],
+                           attack_cooldown=cd,
                            ranged_attacker=mdef.get("ranged", False),
-                           speed=mdef["speed"], x=float(px), y=float(py))
+                           speed=mdef["speed"], x=float(px), y=float(py),
+                           detect_range=mdef.get("detect", 600),
+                           dr_ranged=mdef.get("dr_ranged", 0.0),
+                           dr_melee=mdef.get("dr_melee", 0.0),
+                           wither=mdef.get("wither", 0.0),
+                           combo_hits=mdef.get("combo_hits", 1),
+                           combo_interval=mdef.get("combo_interval", 0.0),
+                           fireball=mdef.get("fireball", 0),
+                           fire_interval=mdef.get("fire_interval", 0.0),
+                           burn=mdef.get("burn", 0.0),
+                           burn_dmg=mdef.get("burn_dmg", 0))
 
         for i, d in enumerate([md, rd]):
             monsters.append(make_boss(d, i))

@@ -1,5 +1,5 @@
 """
-Dungeon Warriors v2.0 — 战斗场景（核心玩法）
+Dungeon Warriors V1.0.5.8 — 战斗场景（核心玩法，平衡性重做）
 V1.0.5 多房间楼层架构、墙壁传送门系统
 """
 
@@ -10,6 +10,10 @@ from config import (
     TILE_SIZE, MAP_COLS, MAP_ROWS, FPS, SPAWN_DELAY_SEC,
     PLAYER_BASE_SPEED,
     PROJECTILE_SPEED, PROJECTILE_RANGE, PROJECTILE_SIZE,
+    ENEMY_ARROW_SPEED, ENEMY_ARROW_RANGE,
+    FIREBALL_SPEED, FIREBALL_RANGE,
+    ICE_FIREBALL_SPEED, ICE_FIREBALL_RANGE,
+    ICE_BOMB_SPEED, ICE_BOMB_RANGE,
     MONSTER_DETECT_RANGE, MONSTER_SPEED,
     MONSTER_FINAL_BOSS_SUMMON_INTERVAL, MONSTER_FINAL_BOSS_SUMMON_CHANCE,
     DROP_NORMAL_POTION, DROP_NORMAL_BREAD,
@@ -195,7 +199,6 @@ class CombatScene:
 
         from config import DIFFICULTY_MODIFIERS
         mod = DIFFICULTY_MODIFIERS.get(self.difficulty, {})
-        spawn_mult = mod.get("spawn_mult", 1.0)
 
         room_idx = self.current_room.room_idx
         if self.current_room.room_type == RoomType.BOSS_BATTLE:
@@ -204,6 +207,7 @@ class CombatScene:
                 monsters = spawn_monsters_boss(
                     self.current_room,
                     self.floor_type, self.current_floor,
+                    difficulty=self.difficulty,
                 )
                 self.room_monsters[room_idx] = monsters
                 self.monsters = list(monsters)
@@ -211,21 +215,17 @@ class CombatScene:
                 if self.audio:
                     self.audio.play_boss_appear()
         elif not self.room_cleared.get(room_idx, False):
-            # V1.0.5 为当前房间生成怪物
-            # V1.0.5.6：BOSS楼层的出生点/增强战斗房间按第一层标准刷怪（floor_manager内处理）
+            # V1.0.5.8 为当前房间生成怪物（平衡性重做）
             monsters = spawn_monsters_for_room(
                 self.current_room,
-                self.current_floor, spawn_mult,
+                self.current_floor, difficulty=self.difficulty,
             )
             self.room_monsters[room_idx] = monsters
             self.monsters = list(monsters)
 
-        # 应用难度修饰（移速、冷却）
-        spd_mul = mod.get("speed_mult", 1.0)
-        cd_mul = mod.get("cd_mult", 1.0)
+        # V1.0.5.8: 难度修饰已在 floor_manager 中处理（怪物生成时应用缩放）
+        # 仅保留旧代码兼容：skill_cd 初始化
         for m in self.monsters:
-            m.speed = int(m.speed * spd_mul)
-            m.attack_cooldown = m.attack_cooldown * cd_mul
             m.skill_cd = 0.0
 
     # ================================================================
@@ -492,10 +492,11 @@ class CombatScene:
         else:
             self._heal_frac = 0.0
 
-        # 燃烧 DOT（分数累加器）
+        # 燃烧 DOT（分数累加器）V1.0.5.8: 使用等级系统
         burn = self.player.status_effects.get("burn", 0)
         if burn > 0:
-            self._burn_frac += self.player._burn_dmg * dt
+            burn_dmg = self.player.get_burn_damage()  # V1.0.5.8: 按等级计算伤害
+            self._burn_frac += burn_dmg * dt
             whole = int(self._burn_frac)
             if whole > 0:
                 self._burn_frac -= whole
@@ -810,8 +811,8 @@ class CombatScene:
         for i, proj in enumerate(self.projectiles):
             proj['x'] += proj['vx']
             proj['y'] += proj['vy']
-            proj['traveled'] += PROJECTILE_SPEED
-            if proj['traveled'] > PROJECTILE_RANGE or self._collides_wall(proj['x'], proj['y']):
+            proj['traveled'] += proj.get('speed', PROJECTILE_SPEED)
+            if proj['traveled'] > proj.get('range', PROJECTILE_RANGE) or self._collides_wall(proj['x'], proj['y']):
                 to_remove.append(i)
                 continue
 
@@ -824,12 +825,14 @@ class CombatScene:
                 dy = self.player.y - proj['y']
                 if math.sqrt(dx*dx+dy*dy) < TILE_SIZE // 2:
                     self.player.take_damage(proj['damage'])
-                    # 燃烧效果（火球）
+                    # 燃烧效果（火球）V1.0.5.8: 传递等级参数
                     if proj.get('burn'):
-                        self.player.add_status("burn", proj['burn'], proj.get('burn_dmg', 7))
-                    # 霜冻效果（流髑箭矢）
+                        burn_level = proj.get('burn_level', 2)
+                        self.player.add_status("burn", proj['burn'], proj.get('burn_dmg', 7), level=burn_level)
+                    # 霜冻效果（流髑箭矢）V1.0.5.8: 传递等级参数
                     if proj.get('frost'):
-                        self.player.add_status("frost", proj['frost'])
+                        frost_level = proj.get('frost_level', 1)
+                        self.player.add_status("frost", proj['frost'], level=frost_level)
                     if self.audio:
                         self.audio.play_player_hit()
                     if not self.player.is_alive():
@@ -888,13 +891,14 @@ class CombatScene:
                         monster._p2_fb_timer = 0.0
                         for j in range(18):
                             a = j * (2 * math.pi / 18)
-                            vx = math.cos(a) * PROJECTILE_SPEED * 0.5
-                            vy = math.sin(a) * PROJECTILE_SPEED * 0.5
+                            vx = math.cos(a) * FIREBALL_SPEED * 0.5
+                            vy = math.sin(a) * FIREBALL_SPEED * 0.5
                             self.projectiles.append({
                                 'x': monster.x, 'y': monster.y,
                                 'vx': vx, 'vy': vy, 'damage': 8,
                                 'traveled': 0.0, 'weapon': None, 'shooter': id(monster),
-                                'burn': 5.0, 'burn_dmg': 9,
+                                'burn': 5.0, 'burn_dmg': 9, 'burn_level': 3,
+                                'speed': FIREBALL_SPEED, 'range': FIREBALL_RANGE,
                             })
                 if monster.summon_timer >= MONSTER_FINAL_BOSS_SUMMON_INTERVAL:
                     monster.summon_timer = 0
@@ -961,8 +965,10 @@ class CombatScene:
             elif ('精英骷髅' in monster.name or '流髑' in monster.name) and monster.skill_cd <= 0 and dist_to_player > TILE_SIZE*3:
                 for j in range(3):
                     a = math.atan2(self.player.y-monster.y, self.player.x-monster.x) + (j-1)*0.08
-                    vx = math.cos(a)*PROJECTILE_SPEED*0.75; vy = math.sin(a)*PROJECTILE_SPEED*0.75
-                    self.projectiles.append({'x':monster.x,'y':monster.y,'vx':vx,'vy':vy,'damage':monster.attack,'traveled':0,'weapon':None,'shooter':id(monster),'frost': 3.0} if '流髑' in monster.name else {'x':monster.x,'y':monster.y,'vx':vx,'vy':vy,'damage':monster.attack,'traveled':0,'weapon':None,'shooter':id(monster)})
+                    vx = math.cos(a)*ENEMY_ARROW_SPEED*0.75; vy = math.sin(a)*ENEMY_ARROW_SPEED*0.75
+                    frost_dur = 5.0 if '流髑' in monster.name else 0.0
+                    frost_level = 2 if '流髑' in monster.name else 0  # V1.0.5.8: 流髑附加II级霜冻
+                    self.projectiles.append({'x':monster.x,'y':monster.y,'vx':vx,'vy':vy,'damage':monster.attack,'traveled':0,'weapon':None,'shooter':id(monster),'frost': frost_dur, 'frost_level': frost_level, 'speed': ENEMY_ARROW_SPEED, 'range': ENEMY_ARROW_RANGE})
                 monster.skill_cd = 20.0; self.toasts.append(make_toast(f'{monster.name} 三连箭！'))
             # 暗影骑士: >3格 → 冲刺(1秒×2速)
             elif '暗影骑士' in monster.name and '暗黑' not in monster.name and monster.skill_cd <= 0 and dist_to_player > TILE_SIZE*3:
@@ -1035,22 +1041,36 @@ class CombatScene:
                     dist = math.sqrt(dx*dx + dy*dy)
                     if dist > 0:
                         is_fireball = ('烈焰使者' in monster.name or '炎魔' in monster.name)
+                        is_ice_bomb = '冰弹' in monster.name or '冰霜僵尸' in monster.name
                         count = 3 if is_fireball else 1
                         base_angle = math.atan2(dy, dx)
+                        
+                        # V1.0.5.8: 根据怪物类型选择弹射物属性
+                        if is_fireball:
+                            proj_speed = FIREBALL_SPEED
+                            proj_range = FIREBALL_RANGE
+                        elif is_ice_bomb:
+                            proj_speed = ICE_BOMB_SPEED
+                            proj_range = ICE_BOMB_RANGE
+                        else:
+                            proj_speed = ENEMY_ARROW_SPEED
+                            proj_range = ENEMY_ARROW_RANGE
+                        
                         for j in range(count):
                             spread = (j - 1) * 0.10 if count > 1 else 0
                             a = base_angle + spread
-                            vx = math.cos(a) * PROJECTILE_SPEED * 0.5
-                            vy = math.sin(a) * PROJECTILE_SPEED * 0.5
+                            vx = math.cos(a) * proj_speed * 0.5
+                            vy = math.sin(a) * proj_speed * 0.5
                             proj = {
                                 'x': monster.x, 'y': monster.y,
                                 'vx': vx, 'vy': vy, 'damage': monster.attack,
                                 'traveled': 0.0, 'weapon': None, 'shooter': id(monster),
+                                'speed': proj_speed, 'range': proj_range,
                             }
                             if '烈焰使者' in monster.name:
-                                proj['burn'] = 3.0; proj['burn_dmg'] = 7; proj['damage'] = 5
+                                proj['burn'] = 4.0; proj['burn_dmg'] = 7; proj['damage'] = 5; proj['burn_level'] = 2
                             elif '炎魔' in monster.name:
-                                proj['burn'] = 5.0; proj['burn_dmg'] = 8; proj['damage'] = 8
+                                proj['burn'] = 5.0; proj['burn_dmg'] = 9; proj['damage'] = 8; proj['burn_level'] = 3
                             # 流髑箭矢附加霜冻（V1.0.4）
                             if '流髑' in monster.name:
                                 proj['frost'] = 3.0

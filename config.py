@@ -1,6 +1,6 @@
 """
-Dungeon Warriors v2.0 — 游戏常量配置
-基于 frame/frame.txt 数值平衡表
+Dungeon Warriors V1.0.5.8 — 游戏常量配置（平衡性重做）
+基于 frame/V 1.0.5/平衡性重做/ 设计文档
 """
 
 # ============================================================
@@ -28,37 +28,37 @@ PLAYER_DEFAULT_WEAPON = "铜剑"  # 初始武器
 PLAYER_DEFAULT_ARMOR = "战袍 (T1)"   # 初始护甲
 
 # ============================================================
-# 怪物 (frame.txt)
+# 怪物 (V1.0.5.8 平衡性重做)
 # ============================================================
 # 格式: hp, attack, attack_range(格), attack_cooldown(秒)
 MONSTER_NORMAL_HP = 30
-MONSTER_NORMAL_ATK = 3
-MONSTER_NORMAL_RANGE = 1.2
-MONSTER_NORMAL_CD = 1.0
+MONSTER_NORMAL_ATK = 4
+MONSTER_NORMAL_RANGE = 1.5
+MONSTER_NORMAL_CD = 1.2
 
 MONSTER_ELITE_HP = 50
-MONSTER_ELITE_ATK = 4
+MONSTER_ELITE_ATK = 6
 MONSTER_ELITE_RANGE = 1.5
-MONSTER_ELITE_CD = 0.8
+MONSTER_ELITE_CD = 1.2
 
-MONSTER_HEAD_BOSS_HP = 150
-MONSTER_HEAD_BOSS_ATK = 5
-MONSTER_HEAD_BOSS_RANGE = 1.8
-MONSTER_HEAD_BOSS_CD = 0.6
+MONSTER_HEAD_BOSS_HP = 800
+MONSTER_HEAD_BOSS_ATK = 12
+MONSTER_HEAD_BOSS_RANGE = 1.2
+MONSTER_HEAD_BOSS_CD = 1.2
 
-MONSTER_FINAL_BOSS_HP = 400
-MONSTER_FINAL_BOSS_ATK_P1 = 6
-MONSTER_FINAL_BOSS_ATK_P2 = 7
-MONSTER_FINAL_BOSS_CD_P1 = 0.5
-MONSTER_FINAL_BOSS_CD_P2 = 0.4
-MONSTER_FINAL_BOSS_RANGE = 2.0
-MONSTER_FINAL_BOSS_P2_DR = 0.20    # 二阶段 20% 伤害减免
+MONSTER_FINAL_BOSS_HP = 5000
+MONSTER_FINAL_BOSS_ATK_P1 = 12
+MONSTER_FINAL_BOSS_ATK_P2 = 15
+MONSTER_FINAL_BOSS_CD_P1 = 1.2
+MONSTER_FINAL_BOSS_CD_P2 = 1.0
+MONSTER_FINAL_BOSS_RANGE = 3.0
+MONSTER_FINAL_BOSS_P2_DR = 0.40    # 二阶段 40% 远程伤害减免
 MONSTER_FINAL_BOSS_SUMMON_INTERVAL = 10.0  # 每10秒召唤
 MONSTER_FINAL_BOSS_SUMMON_CHANCE = 0.50
 MONSTER_FINAL_BOSS_RANGED_IMMUNE_HP = 0.25  # HP<25% 远程免疫
 
 MONSTER_SPEED = 2
-MONSTER_DETECT_RANGE = 250     # px
+MONSTER_DETECT_RANGE = 480     # px
 MONSTER_SCALE_PER_FLOOR = 1.07  # 保留旧缩放（兼容 floor_manager）
 
 # 每5层怪物成长
@@ -125,20 +125,56 @@ AUTO_DESTROY_LOW_LEVEL_GEAR = False  # 低级装备自动销毁开关（默认�
 MUSIC_ENABLED = True                 # 音乐控制开关（默认开启，关闭时停止游戏内所有音乐）
 
 # ============================================================
-# 难度系统
+# 难度系统（V1.0.5.8 平衡性重做）
 # ============================================================
+# 基础难度：刷怪倍率1.0，怪物属性每层线性缩放
+# 冒险难度：刷怪倍率1.25，每房间额外刷新50%精英
+# 末日难度：刷怪倍率1.5，每房间额外刷新100%精英
 DIFFICULTY_MODIFIERS = {
     "easy": {
         "label": "默认",
-        "spawn_mult": 1.0, "speed_mult": 0.75, "cd_mult": 1.25,
+        "spawn_mult": 1.0,
+        "hp_scale_per_floor": 1.18,      # 每层+18%血量
+        "atk_scale_per_floor": 1.18,     # 每层+18%攻击力
+        "cd_scale_per_floor": 0.99,      # 每层-1%攻击冷却
+        "skill_cd_scale_per_floor": 0.99, # 每层-1%技能冷却
+        "elite_extra_mult": 0.0,         # 无额外精英
+        "boss_cd_mult": 1.0,             # BOSS攻击冷却倍率
+        "boss_skill_cd_mult": 1.0,       # BOSS技能冷却倍率
+        "boss_atk_mult": 1.0,            # BOSS攻击力倍率
+        "boss_hp_mult": 1.0,             # BOSS血量倍率
+        "treasure_room_chance_battle": 0.10,  # 战斗房间宝藏室概率
+        "treasure_room_chance_dungeon": 0.60, # 副本房间宝藏室概率
     },
     "normal": {
         "label": "冒险",
-        "spawn_mult": 1.5, "speed_mult": 1.0, "cd_mult": 1.0,
+        "spawn_mult": 1.25,
+        "hp_scale_per_floor": 1.18,
+        "atk_scale_per_floor": 1.18,
+        "cd_scale_per_floor": 0.985,     # 每层-1.5%攻击冷却
+        "skill_cd_scale_per_floor": 0.985,
+        "elite_extra_mult": 0.50,        # 额外50%精英
+        "boss_cd_mult": 0.9,             # BOSS攻击冷却×0.9
+        "boss_skill_cd_mult": 0.8,       # BOSS技能冷却×0.8
+        "boss_atk_mult": 1.1,            # BOSS攻击力×1.1
+        "boss_hp_mult": 1.2,             # BOSS血量×1.2
+        "treasure_room_chance_battle": 0.20,
+        "treasure_room_chance_dungeon": 0.80,
     },
     "hard": {
         "label": "末日",
-        "spawn_mult": 2.0, "speed_mult": 1.25, "cd_mult": 0.75,
+        "spawn_mult": 1.5,
+        "hp_scale_per_floor": 1.26,      # 每层+26%血量
+        "atk_scale_per_floor": 1.26,     # 每层+26%攻击力
+        "cd_scale_per_floor": 0.98,      # 每层-2%攻击冷却
+        "skill_cd_scale_per_floor": 0.98,
+        "elite_extra_mult": 1.00,        # 额外100%精英
+        "boss_cd_mult": 0.8,             # BOSS攻击冷却×0.8
+        "boss_skill_cd_mult": 0.6,       # BOSS技能冷却×0.6
+        "boss_atk_mult": 1.2,            # BOSS攻击力×1.2
+        "boss_hp_mult": 1.5,             # BOSS血量×1.5
+        "treasure_room_chance_battle": 0.40,
+        "treasure_room_chance_dungeon": 1.00,
     },
 }
 DEFAULT_DIFFICULTY = "easy"
@@ -188,11 +224,23 @@ GAME_OVER_DELAY_SEC = 3
 REVIVE_HP_RESTORE_RATIO = 1.0
 
 # ============================================================
-# 远程投射物
+# 远程投射物（V1.0.5.8 平衡性重做）
 # ============================================================
 PROJECTILE_SPEED = 16         # 玩家箭矢速度
-PROJECTILE_RANGE = 600
+PROJECTILE_RANGE = 960        # 玩家箭矢射程
 PROJECTILE_SIZE = 6
+
+ENEMY_ARROW_SPEED = 12        # 敌方箭矢速度
+ENEMY_ARROW_RANGE = 960       # 敌方箭矢射程
+
+FIREBALL_SPEED = 8            # 火球速度
+FIREBALL_RANGE = 640          # 火球射程
+
+ICE_FIREBALL_SPEED = 10       # 冰焰弹速度
+ICE_FIREBALL_RANGE = 720      # 冰焰弹射程
+
+ICE_BOMB_SPEED = 12           # 冰弹速度
+ICE_BOMB_RANGE = 720          # 冰弹射程
 
 # ============================================================
 # 颜色

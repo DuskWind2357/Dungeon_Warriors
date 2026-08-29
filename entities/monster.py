@@ -1,5 +1,5 @@
 """
-Dungeon Warriors v2.0 — 怪物数据类
+Dungeon Warriors V1.0.5.8 — 怪物数据类（平衡性重做）
 攻击范围、冷却时间、BOSS多阶段、召唤系统、击退定身、循伤索敌
 """
 
@@ -9,7 +9,7 @@ from config import MONSTER_SPEED, MONSTER_DETECT_RANGE, TILE_SIZE
 
 @dataclass
 class Monster:
-    """怪物实体 v2.0"""
+    """怪物实体 V1.0.5.8"""
     name: str
     monster_type: str   # "normal"|"elite"|"head_boss"|"final_boss"
     hp: int
@@ -29,10 +29,15 @@ class Monster:
     # 攻击类型
     ranged_attacker: bool = False       # 是否为远程攻击怪物（骷髅）
 
+    # 索敌范围
+    detect_range: float = MONSTER_DETECT_RANGE  # 索敌范围（px）
+
     # BOSS 专属
     phase: int = 1                      # 阶段 (1 or 2)
     summon_timer: float = 0.0           # 召唤倒计时
-    damage_reduction: float = 0.0       # 伤害减免
+    damage_reduction: float = 0.0       # 伤害减免（兼容旧代码）
+    dr_ranged: float = 0.0              # 远程伤害减免
+    dr_melee: float = 0.0               # 近战伤害减免
     ranged_immune: bool = False         # 远程免疫
 
     # 循伤索敌系统（V1.0.4 P3）
@@ -42,9 +47,28 @@ class Monster:
     base_detect_range: float = MONSTER_DETECT_RANGE  # 原始索敌范围
     speed_boost_timer: float = 0.0      # 速度加成剩余时间（已锁定玩家时触发）
 
-    def take_damage(self, damage: int) -> bool:
+    # V1.0.5.8 状态效果属性
+    wither: float = 0.0                 # 凋零持续时间（秒）
+    frost: float = 0.0                  # 霜冻持续时间（秒）
+    burn: float = 0.0                   # 燃烧持续时间（秒）
+    burn_dmg: int = 0                   # 燃烧伤害
+
+    # V1.0.5.8 精英/BOSS技能
+    fireball: int = 0                   # 火球散射数量
+    fire_interval: float = 0.0          # 火球散射间隔
+    combo_hits: int = 1                 # 连击次数（暗黑骑士）
+    combo_interval: float = 0.0         # 连击间隔
+
+    def take_damage(self, damage: int, is_ranged: bool = False) -> bool:
         """受到伤害（含减免），返回是否死亡"""
-        reduced = int(damage * (1 - self.damage_reduction))
+        # 计算伤害减免
+        if is_ranged:
+            reduction = self.dr_ranged
+        else:
+            reduction = self.dr_melee
+        # 兼容旧代码的 damage_reduction
+        reduction = max(reduction, self.damage_reduction)
+        reduced = int(damage * (1 - reduction))
         self.hp = max(0, self.hp - reduced)
         if self.hp <= 0:
             self.alive = False
@@ -58,7 +82,7 @@ class Monster:
         return self.hp / self.max_hp if self.max_hp > 0 else 0.0
 
     # ================================================================
-    # BOSS 阶段管理
+    # BOSS 阶段管理（V1.0.5.8 更新）
     # ================================================================
 
     def check_phase_transition(self) -> bool:
@@ -79,9 +103,7 @@ class Monster:
         # 二阶段（HP<50%）
         if hp_pct < 0.50 and self.phase == 1:
             self.phase = 2
-            self.attack = 7                        # ATK +7
-            self.attack_cooldown = 0.4              # CD 0.4s
-            self.damage_reduction = 0.20            # 20% 减伤
+            # V1.0.5.8: 二阶段属性由外部传入，此处不硬编码
             return True
 
         return False

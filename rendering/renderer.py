@@ -1,4 +1,4 @@
-"""
+﻿"""
 Dungeon Warriors — 渲染器
 绘制地图、玩家、怪物、掉落物品、HUD
 """
@@ -593,16 +593,25 @@ def draw_hud(screen: pygame.Surface, player: Player,
             screen.blit(buf_surf, (screen.get_width() - buf_surf.get_width() - 10, buff_y))
             buff_y += 18
 
-    # 负面状态效果（右上方，buff下方）
+    # 负面状态效果（右上方，buff下方）V1.0.5.8: 显示等级
     se_names = {"wither": "凋零", "burn": "燃烧", "frost": "霜冻"}
     se_colors = {
-        "wither": (0, 0, 0),        # 凋零：黑色
+        "wither": (80, 60, 40),     # 凋零：棕黑色
         "burn":   (255, 140, 0),    # 燃烧：橙色
-        "frost":  (150, 200, 255),  # 霜冻：淡蓝色
+        "frost":  (180, 220, 255),  # 霜冻：淡蓝色
     }
+    # V1.0.5.8: 状态效果等级标记
+    se_level_names = {1: "I", 2: "II", 3: "III"}
     for se_type, remaining in sorted(player.status_effects.items()):
         if remaining > 0 and se_type in se_names:
-            se_text = f"{se_names[se_type]} {remaining:.1f}s"
+            # 获取等级
+            level = 1
+            if se_type == "burn":
+                level = player._burn_level
+            elif se_type == "frost":
+                level = 2 if remaining >= 5.0 else 1
+            level_str = se_level_names.get(level, "")
+            se_text = f"{se_names[se_type]} {level_str} {remaining:.1f}s"
             se_surf = font.render(se_text, True, se_colors.get(se_type, (255, 100, 100)))
             screen.blit(se_surf, (screen.get_width() - se_surf.get_width() - 10, buff_y))
             buff_y += 18
@@ -725,3 +734,4 @@ def get_button_font() -> pygame.font.Font:
 def get_hud_font() -> pygame.font.Font:
     """获取 HUD 字体"""
     return _get_font(18)
+
