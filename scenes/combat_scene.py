@@ -8,7 +8,7 @@ import random
 import pygame
 from config import (
     TILE_SIZE, MAP_COLS, MAP_ROWS, FPS, SPAWN_DELAY_SEC,
-    PLAYER_BASE_SPEED,
+    PLAYER_BASE_SPEED, GLOBAL_SPEED_MULT,
     PROJECTILE_SPEED, PROJECTILE_RANGE, PROJECTILE_SIZE,
     ENEMY_ARROW_SPEED, ENEMY_ARROW_RANGE,
     FIREBALL_SPEED, FIREBALL_RANGE,
@@ -1113,6 +1113,7 @@ class CombatScene:
 
     def _move_with_astar(self, monster, goal_grid, speed, dt):
         """统一的 A* 移动：有路径沿路径走，无路径则规划。goal_grid=None 表示徘徊"""
+        speed *= GLOBAL_SPEED_MULT  # 全局移速缩放
         path = getattr(monster, '_path', None)
         recalc = getattr(monster, '_recalc', 0)
         retry = getattr(monster, '_retry', 0)
@@ -1185,7 +1186,7 @@ class CombatScene:
     def _handle_movement(self) -> None:
         keys = pygame.key.get_pressed()
         dx, dy = 0.0, 0.0
-        spd = self.player.total_speed()
+        spd = self.player.total_speed() * GLOBAL_SPEED_MULT
         if keys[pygame.K_w] or keys[pygame.K_UP]:
             dy -= spd
         if keys[pygame.K_s] or keys[pygame.K_DOWN]:

@@ -24,6 +24,7 @@ PLAYER_BASE_HP = 100
 PLAYER_HP_PER_FLOOR = 5       # 每层 +5 生命上限
 PLAYER_HP_PER_BOSS_KILL = 5   # 每击杀头目 +5 生命上限
 PLAYER_BASE_SPEED = 4         # px/frame
+GLOBAL_SPEED_MULT = 0.75      # 全局移速倍率（所有实体统一缩放）
 PLAYER_DEFAULT_WEAPON = "铜剑"  # 初始武器
 PLAYER_DEFAULT_ARMOR = "战袍 (T1)"   # 初始护甲
 
