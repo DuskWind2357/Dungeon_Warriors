@@ -1,5 +1,5 @@
 """
-Dungeon Warriors V1.0.5.12 — 游戏常量配置（平衡性重做）
+Dungeon Warriors V1.0.5.13 — 游戏常量配置（平衡性重做）
 基于 frame/V 1.0.5/平衡性重做/ 设计文档
 """
 

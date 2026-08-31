@@ -1,5 +1,5 @@
 """
-Dungeon Warriors V1.0.5.12 — 战斗场景（核心玩法，平衡性重做）
+Dungeon Warriors V1.0.5.13 — 战斗场景（核心玩法，平衡性重做）
 V1.0.5 多房间楼层架构、墙壁传送门系统
 """
 
@@ -1020,9 +1020,11 @@ class CombatScene:
         self._portal_countdown = None
         self._portal_proximity_sound_playing = False
 
-        # 战斗类房间未清理时，进入即刷新怪物（副本/宝藏/特殊宝藏不刷新）
+        # V1.0.5.13 修复: 副本/宝藏/特殊宝藏房间首次进入时生成刷怪笼/宝箱
+        # （已通关的房间不再生成；self.monsters 非空则不重复生成）
         if (target_room.room_type in (RoomType.BATTLE, RoomType.ENHANCED_BATTLE,
-                                      RoomType.BOSS_BATTLE)
+                                      RoomType.BOSS_BATTLE, RoomType.DUNGEON,
+                                      RoomType.TREASURE, RoomType.SPECIAL_TREASURE)
                 and not self.room_cleared.get(target_room.room_idx, False)):
             if not self.monsters:
                 self._spawn_monsters_for_current_room()
