@@ -1,21 +1,45 @@
 """
-Dungeon Warriors V1.0.5.8 — 怪物个体化定义（平衡性重做）
+Dungeon Warriors V1.0.5.12 — 怪物个体化定义（平衡性重做）
 每个怪物有独立属性，数值依据 frame/V 1.0.5/平衡性重做/怪物数值重置.txt
+速度/攻击冷却为文档原始值（速度实际位移 = speed × config.MONSTER_SPEED_SCALE）
 """
+
+# ================================================================
+# 特殊实体（V1.0.5.12）
+# ================================================================
+# 宝箱：不具备移动能力，血量50（固定），无索敌范围，无攻击力
+CHEST = {"name": "宝箱", "hp": 50, "atk": 0, "range": 0, "cd": 999, "speed": 0,
+         "detect": 0, "color": "brown", "ranged": False, "immobile": True,
+         "monster_type": "chest"}
+
+# 试炼刷怪笼：不具备移动能力，血量600+30×(Floor-1)，索敌范围1200，无攻击力
+TRIAL_SPAWNER_BASE_HP = 600
+TRIAL_SPAWNER_HP_PER_FLOOR = 30
+TRIAL_SPAWNER = {"name": "试炼刷怪笼", "hp": TRIAL_SPAWNER_BASE_HP, "atk": 0, "range": 0,
+                 "cd": 10.0, "speed": 0, "detect": 1200, "color": "gray", "ranged": False,
+                 "immobile": True, "monster_type": "trial_spawner", "spawn_interval": 10.0}
+
+# 召唤概率表：20% 3精英 / 20% 2精英 / 30% 4普通 / 30% 3普通
+TRIAL_SPAWN_WEIGHTS = [
+    (0.20, 3, "elite"),   # 20% 3精英
+    (0.20, 2, "elite"),   # 20% 2精英
+    (0.30, 4, "normal"),  # 30% 4普通怪物
+    (0.30, 3, "normal"),  # 30% 3普通怪物
+]
 
 # ================================================================
 # 普通怪物（个体化属性）
 # ================================================================
 NORMAL_MONSTERS = [
-    {"name": "僵尸",     "hp": 30, "atk": 4, "range": 1.5, "cd": 1.2, "speed": 2, "detect": 480, "color": "green_dark", "ranged": False},
-    {"name": "骷髅",     "hp": 30, "atk": 5, "range": 1.5, "cd": 2.0, "speed": 2, "detect": 480, "color": "white",     "ranged": True},
-    {"name": "蜘蛛",     "hp": 25, "atk": 3, "range": 1.2, "cd": 1.2, "speed": 2, "detect": 360, "color": "black",     "ranged": False},
-    {"name": "蝙蝠",     "hp": 20, "atk": 3, "range": 1.0, "cd": 1.0, "speed": 3, "detect": 360, "color": "brown",     "ranged": False},
-    {"name": "大型史莱姆", "hp": 50, "atk": 6, "range": 1.0, "cd": 1.8, "speed": 1, "detect": 480, "color": "green_bright", "ranged": False, "split": "large"},
-    {"name": "中型史莱姆", "hp": 30, "atk": 4, "range": 1.0, "cd": 1.8, "speed": 1, "detect": 420, "color": "green_bright", "ranged": False, "split": "medium"},
-    {"name": "小型史莱姆", "hp": 10, "atk": 2, "range": 1.0, "cd": 1.8, "speed": 2, "detect": 360, "color": "green_bright", "ranged": False, "split": "small"},
-    {"name": "小型岩浆史莱姆", "hp": 10, "atk": 2, "range": 1.0, "cd": 1.8, "speed": 2, "detect": 360, "color": "red", "ranged": False, "split": "small", "burn": 3.0, "burn_dmg": 5},
-    {"name": "中型岩浆史莱姆", "hp": 30, "atk": 4, "range": 1.0, "cd": 1.8, "speed": 1, "detect": 420, "color": "red", "ranged": False, "split": "medium", "burn": 3.0, "burn_dmg": 5},
+    {"name": "僵尸",     "hp": 30, "atk": 4, "range": 1.5, "cd": 1.2, "speed": 1.0, "detect": 480, "color": "green_dark", "ranged": False},
+    {"name": "骷髅",     "hp": 30, "atk": 5, "range": 1.5, "cd": 2.0, "speed": 1.2, "detect": 480, "color": "white",     "ranged": True},
+    {"name": "蜘蛛",     "hp": 25, "atk": 3, "range": 1.2, "cd": 1.2, "speed": 1.5, "detect": 360, "color": "black",     "ranged": False},
+    {"name": "蝙蝠",     "hp": 20, "atk": 3, "range": 1.0, "cd": 1.0, "speed": 2.0, "detect": 360, "color": "brown",     "ranged": False},
+    {"name": "大型史莱姆", "hp": 50, "atk": 6, "range": 1.0, "cd": 1.8, "speed": 1.0, "detect": 480, "color": "green_bright", "ranged": False, "split": "large"},
+    {"name": "中型史莱姆", "hp": 30, "atk": 4, "range": 1.0, "cd": 1.8, "speed": 1.2, "detect": 420, "color": "green_bright", "ranged": False, "split": "medium"},
+    {"name": "小型史莱姆", "hp": 10, "atk": 2, "range": 1.0, "cd": 1.8, "speed": 1.5, "detect": 360, "color": "green_bright", "ranged": False, "split": "small"},
+    {"name": "小型岩浆史莱姆", "hp": 10, "atk": 2, "range": 1.0, "cd": 1.8, "speed": 1.5, "detect": 360, "color": "red", "ranged": False, "split": "small", "burn": 3.0, "burn_dmg": 5},
+    {"name": "中型岩浆史莱姆", "hp": 30, "atk": 4, "range": 1.0, "cd": 1.8, "speed": 1.2, "detect": 420, "color": "red", "ranged": False, "split": "medium", "burn": 3.0, "burn_dmg": 7},
 ]
 # 自然刷新的普通怪物（中/小型史莱姆不自然刷新）
 NATURAL_NORMAL = ["僵尸", "骷髅", "蜘蛛", "蝙蝠", "大型史莱姆"]
@@ -24,30 +48,30 @@ NATURAL_NORMAL = ["僵尸", "骷髅", "蜘蛛", "蝙蝠", "大型史莱姆"]
 # 精英怪物
 # ================================================================
 ELITE_MONSTERS = [
-    {"name": "精英僵尸",   "hp": 50, "atk": 6,  "range": 1.5, "cd": 1.2, "speed": 1, "detect": 720, "color": "green_black", "ranged": False},
-    {"name": "精英骷髅",   "hp": 50, "atk": 8,  "range": 1.5, "cd": 2.0, "speed": 2, "detect": 720, "color": "gray_white",  "ranged": True},
-    {"name": "暗影骑士",   "hp": 50, "atk": 7,  "range": 2.0, "cd": 1.8, "speed": 2, "detect": 720, "color": "purple_dark", "ranged": False, "wither": 4.0},
-    {"name": "烈焰使者",   "hp": 50, "atk": 0,  "range": 1.5, "cd": 5.0, "speed": 1, "detect": 720, "color": "gold",       "ranged": True,  "fireball": 3, "fire_interval": 0.3, "burn": 4.0, "burn_dmg": 7},
+    {"name": "精英僵尸",   "hp": 50, "atk": 6,  "range": 1.5, "cd": 1.2, "speed": 1.2, "detect": 720, "color": "green_black", "ranged": False},
+    {"name": "精英骷髅",   "hp": 50, "atk": 8,  "range": 1.5, "cd": 2.0, "speed": 1.5, "detect": 720, "color": "gray_white",  "ranged": True},
+    {"name": "暗影骑士",   "hp": 50, "atk": 7,  "range": 2.0, "cd": 1.8, "speed": 1.8, "detect": 720, "color": "purple_dark", "ranged": False, "wither": 4.0},
+    {"name": "烈焰使者",   "hp": 50, "atk": 0,  "range": 1.5, "cd": 5.0, "speed": 1.5, "detect": 720, "color": "gold",       "ranged": True,  "fireball": 3, "fire_interval": 0.3, "burn": 4.0, "burn_dmg": 7},
 ]
 
 # ================================================================
 # 雪地特有精英（V1.0.4）：攻击附加霜冻
 # ================================================================
 SNOW_ELITE_MONSTERS = [
-    {"name": "冰霜僵尸",   "hp": 50, "atk": 6,  "range": 1.5, "cd": 1.2, "speed": 1, "detect": 720, "color": "blue_light", "ranged": False, "frost": 5.0},
-    {"name": "流髑",       "hp": 50, "atk": 8,  "range": 1.5, "cd": 2.0, "speed": 2, "detect": 720, "color": "gray_white", "ranged": True,  "frost": 5.0},
+    {"name": "冰霜僵尸",   "hp": 50, "atk": 6,  "range": 1.5, "cd": 1.2, "speed": 1.2, "detect": 720, "color": "blue_light", "ranged": False, "frost": 5.0},
+    {"name": "流髑",       "hp": 50, "atk": 8,  "range": 1.5, "cd": 2.0, "speed": 1.5, "detect": 720, "color": "gray_white", "ranged": True,  "frost": 5.0},
 ]
 
 # ================================================================
 # 头目 BOSS（10%远程伤害减免，5%近战伤害减免）
 # ================================================================
 HEAD_BOSS_MELEE = [
-    {"name": "卫道士突袭队长", "hp": 800, "atk": 12, "range": 1.2, "cd": 1.2, "speed": 2, "detect": 960, "color": "gold",  "ranged": False, "dr_ranged": 0.10, "dr_melee": 0.05},
-    {"name": "暗黑骑士",      "hp": 800, "atk": 9,  "range": 2.0, "cd": 1.2, "speed": 3, "detect": 960, "color": "purple_dark", "ranged": False, "wither": 6.0, "dr_ranged": 0.10, "dr_melee": 0.05, "combo_hits": 3, "combo_interval": 0.3},
+    {"name": "卫道士突袭队长", "hp": 800, "atk": 12, "range": 1.2, "cd": 1.2, "speed": 1.2, "detect": 960, "color": "gold",  "ranged": False, "dr_ranged": 0.10, "dr_melee": 0.05},
+    {"name": "暗黑骑士",      "hp": 800, "atk": 9,  "range": 2.0, "cd": 2.0, "speed": 1.8, "detect": 960, "color": "purple_dark", "ranged": False, "wither": 6.0, "dr_ranged": 0.10, "dr_melee": 0.05, "combo_hits": 3, "combo_interval": 0.3},
 ]
 HEAD_BOSS_RANGED = [
-    {"name": "掠夺者突袭队长", "hp": 800, "atk": 15, "range": 1.5, "cd": 1.5, "speed": 3, "detect": 960, "color": "blue_light", "ranged": True, "dr_ranged": 0.10, "dr_melee": 0.05},
-    {"name": "炎魔",         "hp": 800, "atk": 0,  "range": 1.5, "cd": 5.0, "speed": 2, "detect": 960, "color": "red",        "ranged": True, "fireball": 5, "fire_interval": 0.2, "burn": 5.0, "burn_dmg": 9, "dr_ranged": 0.10, "dr_melee": 0.05},
+    {"name": "掠夺者突袭队长", "hp": 800, "atk": 15, "range": 1.5, "cd": 1.5, "speed": 1.5, "detect": 960, "color": "blue_light", "ranged": True, "dr_ranged": 0.10, "dr_melee": 0.05},
+    {"name": "炎魔",         "hp": 800, "atk": 0,  "range": 1.5, "cd": 5.0, "speed": 1.5, "detect": 960, "color": "red",        "ranged": True, "fireball": 5, "fire_interval": 0.2, "burn": 5.0, "burn_dmg": 9, "dr_ranged": 0.10, "dr_melee": 0.05},
 ]
 
 # ================================================================
@@ -55,17 +79,15 @@ HEAD_BOSS_RANGED = [
 # ================================================================
 FINAL_BOSS = {
     "name": "高塔之主",
-    "hp": 5000,
-    "atk_p1": 12, "cd_p1": 1.2, "speed_p1": 2,
-    "atk_p2": 15, "cd_p2": 1.0, "speed_p2": 2,
-    "speed_p3": 3, "dr_p3": 0.30,
+    "hp": 6000,   # V1.0.5.10: 高塔之主HP提高为6000
+    "atk_p1": 12, "cd_p1": 1.2, "speed_p1": 1.2,
+    "atk_p2": 15, "cd_p2": 1.0, "speed_p2": 1.5,
+    "speed_p3": 1.8, "dr_p3": 0.30,
     "range": 3.0, "detect": 1200, "color": "red_dark",
-    "dps_cap": 50, "hit_cap": 20,
+    "dps_cap": 100, "hit_cap": 30,   # V1.0.5.10: 每秒最大承伤100 / 单次最大承伤30
     "dr_ranged_p1": 0.10, "dr_melee_p1": 0.10,
     "dr_ranged_p2": 0.40, "dr_melee_p2": 0.20,
     "dr_ranged_p3": 1.00, "dr_melee_p3": 0.30,
-    "summon_interval": 10.0, "summon_chance": 0.50,
-    "p2_fireball_interval": 10.0,
 }
 
 # ================================================================

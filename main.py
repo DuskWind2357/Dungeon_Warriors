@@ -17,7 +17,10 @@ from config import (
 from entities.player import Player
 from systems.revive_system import ReviveSystem
 from systems.inventory import create_empty_backpack
-from systems.save_system import save_game, load_game, save_exists, delete_save
+from systems.save_system import (
+    save_game, load_game, save_exists, delete_save,
+    mark_game_completed, is_game_completed,
+)
 from systems.audio_manager import AudioManager
 from rendering.renderer import get_title_font, get_button_font, get_hud_font
 
@@ -78,11 +81,15 @@ class Game:
     # 菜单 / 新游戏 / 继续
     # ================================================================
 
+    def _has_valid_save(self) -> bool:
+        """是否存在可继续的有效存档（已通关标记不算, V1.0.5.9）"""
+        return save_exists() and not is_game_completed()
+
     def _init_menu(self, restart_bgm: bool = True) -> None:
         """初始化菜单场景"""
         from scenes.menu_scene import MenuScene
         self.menu_scene = MenuScene()
-        self.menu_scene.refresh_labels(save_exists())
+        self.menu_scene.refresh_labels(self._has_valid_save())
         if restart_bgm:
             # 每次进入菜单（初次进入/从战斗返回等）从头循环播放BGM
             self.audio.play_menu_bgm()
@@ -95,6 +102,7 @@ class Game:
         if save_exists():
             delete_save()
         self.player = Player()
+        self.player.difficulty = self.difficulty  # V1.0.5.10: 成长参数随难度
         from data.weapons import WEAPON_BY_NAME
         from data.armor import ARMOR_BY_NAME
         self.player.melee_weapon = WEAPON_BY_NAME["铜剑"]     # 初始近战武器
@@ -124,8 +132,12 @@ class Game:
             self.revive_system = data["revive_system"]
             self.current_floor = data["current_floor"]
             self.monsters_killed = data["monsters_killed"]
-            self.auto_destroy = data.get("auto_destroy", AUTO_DESTROY_LOW_LEVEL_GEAR)
-            # 音乐开关随存档恢复（若关闭立即静音）
+            # V1.0.5.10: 恢复存档难度（玩家成长/奖励概率按难度取值）
+            saved_difficulty = data.get("difficulty")
+            if isinstance(saved_difficulty, str) and saved_difficulty:
+                self.difficulty = saved_difficulty
+            # V1.0.5.9 修复: auto_destroy 为全局设置, 以设置界面为准,
+            # 不再被存档旧值覆盖（修复"打开后开始游戏自动关闭"的问题）
             self.audio.set_bgm_enabled(data.get("music_enabled", True))
             # 确保玩家有武器
             if self.player.melee_weapon is None:
@@ -137,8 +149,10 @@ class Game:
                 from scenes.reward_scene import RewardScene
                 self.reward_scene = RewardScene(
                     self.player, self.backpack, self.revive_system,
-                    self.current_floor, self.auto_destroy
+                    self.current_floor, self.auto_destroy,
+                    difficulty=self.difficulty
                 )
+                self.audio.play_reward_bgm()  # V1.0.5.11: 奖励界面BGM
                 self.scene = "reward"
                 return
         else:
@@ -189,8 +203,9 @@ class Game:
         self.scene = "combat"
 
     def _on_victory(self) -> None:
-        """通关胜利"""
-        delete_save()
+        """通关胜利: 清除进度并存档已通关标记（V1.0.5.9）"""
+        mark_game_completed()
+        self.floor_layout_cache.clear()  # 通关后清空楼层布局缓存
         self.scene = "victory"
 
     # ================================================================
@@ -241,7 +256,7 @@ class Game:
         if self.scene == "menu" and self.menu_scene:
             result = self.menu_scene.handle_event(event)
             if result == "continue_or_start":
-                if save_exists():
+                if self._has_valid_save():
                     self._continue_game()
                 else:
                     self._new_game()
@@ -327,12 +342,15 @@ class Game:
                 save_game(self.player, self.backpack, self.revive_system,
                           self.current_floor, self.monsters_killed,
                           scene_state="reward", auto_destroy=self.auto_destroy,
-                          music_enabled=self.audio.bgm_enabled)
+                          music_enabled=self.audio.bgm_enabled,
+                          difficulty=self.difficulty)
                 from scenes.reward_scene import RewardScene
                 self.reward_scene = RewardScene(
                     self.player, self.backpack, self.revive_system,
-                    self.current_floor, self.auto_destroy
+                    self.current_floor, self.auto_destroy,
+                    difficulty=self.difficulty
                 )
+                self.audio.play_reward_bgm()  # V1.0.5.11: 奖励界面BGM
                 self.scene = "reward"
 
         elif self.scene == "death" and self.death_scene:

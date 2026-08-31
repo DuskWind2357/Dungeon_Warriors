@@ -42,14 +42,46 @@ def delete_save() -> None:
         path.unlink()
 
 
+def mark_game_completed() -> None:
+    """通关后清除进度并存档已通关标记（V1.0.5.9 重新应用）
+
+    save.json 将只保留 {"version", "game_completed"} 字段,
+    load_game() 读到该标记时返回 None（视为无有效进度）。
+    """
+    data = {
+        "version": SAVE_VERSION,
+        "game_completed": True,
+    }
+    try:
+        path = get_save_path()
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+    except OSError:
+        pass  # 写档失败不阻断胜利流程
+
+
+def is_game_completed() -> bool:
+    """检查存档是否为已通关标记; 文件缺失/损坏时返回 False"""
+    path = get_save_path()
+    if not path.exists():
+        return False
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return bool(data.get("game_completed", False))
+    except (json.JSONDecodeError, OSError, ValueError, AttributeError):
+        return False
+
+
 def save_game(player: Player, backpack: list,
               revive_system: ReviveSystem,
               current_floor: int,
               monsters_killed: int,
               scene_state: str = "combat",
               auto_destroy: bool = False,
-              music_enabled: bool = True) -> None:
-    """保存游戏到 JSON 文件"""
+              music_enabled: bool = True,
+              difficulty: str = "easy") -> None:
+    """保存游戏到 JSON 文件（V1.0.5.10: 增加难度字段）"""
     data = {
         "version": SAVE_VERSION,
         "current_floor": current_floor,
@@ -57,6 +89,7 @@ def save_game(player: Player, backpack: list,
         "scene_state": scene_state,
         "auto_destroy": auto_destroy,
         "music_enabled": music_enabled,
+        "difficulty": difficulty,
         "revive": revive_system.to_dict(),
         "player": _serialize_player(player),
         "backpack": _serialize_backpack(backpack),
@@ -76,6 +109,10 @@ def load_game() -> dict | None:
     try:
         with open(path, "r", encoding="utf-8") as f:
             data = json.load(f)
+
+        # V1.0.5.9 已通关标记存档: 无有效进度, 视为无存档
+        if data.get("game_completed", False):
+            return None
 
         version = data.get("version", 0)
         if not isinstance(version, (int, float)) or version < 1:
@@ -99,6 +136,7 @@ def load_game() -> dict | None:
             "scene_state": data.get("scene_state", "combat"),
             "auto_destroy": data.get("auto_destroy", False),
             "music_enabled": data.get("music_enabled", True),
+            "difficulty": data.get("difficulty", "easy"),
         }
     except (json.JSONDecodeError, KeyError, TypeError,
             ValueError, AttributeError, OSError):
@@ -109,9 +147,12 @@ def _serialize_player(player: Player) -> dict:
     """序列化玩家数据"""
     return {
         "current_hp": player.current_hp,
+        "difficulty": player.difficulty,
         "boss_kills": player.boss_kills,
         "elite_kills": player.elite_kills,
         "_burn_dmg": player._burn_dmg,
+        "_burn_level": player._burn_level,
+        "status_levels": dict(player.status_levels),
         "buffs": dict(player.buffs),
         "status_effects": dict(player.status_effects),
         "melee_weapon": player.melee_weapon.name if player.melee_weapon else None,
@@ -126,6 +167,11 @@ def _deserialize_player(data: dict) -> Player:
 
     hp = data.get("current_hp")
     player.current_hp = int(hp) if isinstance(hp, (int, float)) else player.base_hp
+
+    # V1.0.5.10: 玩家难度（成长参数取值依据；缺失/非法时回退默认）
+    saved_difficulty = data.get("difficulty")
+    if isinstance(saved_difficulty, str) and saved_difficulty:
+        player.difficulty = saved_difficulty
 
     bk = data.get("boss_kills")
     player.boss_kills = int(bk) if isinstance(bk, (int, float)) else 0
@@ -146,6 +192,14 @@ def _deserialize_player(data: dict) -> Player:
     player.status_effects = ({k: float(v) for k, v in raw_se.items()
                               if isinstance(v, (int, float))}
                              if isinstance(raw_se, dict) else {})
+
+    # V1.0.5.9: 状态等级（防御式：仅接受正整数等级）
+    raw_sl = data.get("status_levels")
+    player.status_levels = ({k: int(v) for k, v in raw_sl.items()
+                             if isinstance(k, str) and isinstance(v, (int, float)) and v > 0}
+                            if isinstance(raw_sl, dict) else {})
+    bl = data.get("_burn_level")
+    player._burn_level = int(bl) if isinstance(bl, (int, float)) and bl > 0 else 2
 
     melee_name = data.get("melee_weapon")
     ranged_name = data.get("ranged_weapon")

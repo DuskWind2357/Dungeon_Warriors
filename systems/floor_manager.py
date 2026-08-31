@@ -1,5 +1,5 @@
 """
-Dungeon Warriors V1.0.5.8 — 楼层管理器（平衡性重做）
+Dungeon Warriors V1.0.5.12 — 楼层管理器（平衡性重做）
 多房间楼层架构：每个房间是独立的20×15网格，切换时整个画面变化
 """
 
@@ -10,17 +10,22 @@ from dataclasses import dataclass, field
 from config import (
     MAP_COLS, MAP_ROWS, TILE_SIZE,
     BOSS_FLOORS, FINAL_BOSS_FLOOR,
-    MONSTER_SCALE_PER_FLOOR,
-    MONSTER_PER_5_FLOORS_HP, MONSTER_PER_5_FLOORS_ATK,
-    PORTAL_MIN_EDGE_DIST, PORTAL_COUNT_MIN, PORTAL_COUNT_MAX,
+    MONSTER_SPEED_SCALE,
+    PORTAL_MIN_EDGE_DIST,
     BRANCH_COUNTS, DUNGEON_ROOM_CHANCES, DUNGEON_MAX_PER_FLOOR,
     BOSS_BRANCH_COUNT,
     DIFFICULTY_MODIFIERS,
+    TREASURE_ROOM_CHESTS, TREASURE_ROOM_CONSUMABLES, TREASURE_ROOM_MAX_POTIONS,
+    TREASURE_ROOM_EQUIP_COUNT, TREASURE_ROOM_EQUIP_MAX_TIER,
+    SPECIAL_TREASURE_ROOM_CHESTS, SPECIAL_TREASURE_ROOM_CONSUMABLES,
+    SPECIAL_TREASURE_ROOM_MIN_POTIONS, SPECIAL_TREASURE_ROOM_EQUIP_COUNT,
+    SPECIAL_TREASURE_ROOM_EQUIP_MIN_TIER,
 )
 from entities.monster import Monster
 from data.monsters import (
     NORMAL_MONSTERS, NATURAL_NORMAL, ELITE_MONSTERS,
     SNOW_ELITE_MONSTERS, HEAD_BOSS_MELEE, HEAD_BOSS_RANGED, FINAL_BOSS,
+    CHEST, TRIAL_SPAWNER, TRIAL_SPAWNER_BASE_HP, TRIAL_SPAWNER_HP_PER_FLOOR,
 )
 
 
@@ -51,7 +56,7 @@ class Portal:
 
 @dataclass
 class Room:
-    """V1.0.5 房间数据类 — 每个房间是独立的20×15网格"""
+    """V1.0.5.12 房间数据类 — 每个房间是独立的20×15网格"""
     room_idx: int
     room_type: RoomType
     grid: list[list[int]] = field(default_factory=list)
@@ -61,6 +66,10 @@ class Room:
     spawn_pos: tuple[int, int] = (0, 0)
     monster_positions: list[tuple[float, float]] = field(default_factory=list)
     unlocked: bool = False   # 特殊宝藏房间：是否已用钥匙解锁（V1.0.5.6）
+    chests: list[tuple[int, int]] = field(default_factory=list)  # V1.0.5.12 宝箱位置
+    spawner_pos: tuple[int, int] | None = None  # V1.0.5.12 试炼刷怪笼位置
+    consumable_positions: list[tuple[int, int]] = field(default_factory=list)  # V1.0.5.12 消耗品位置
+    equip_positions: list[tuple[int, int]] = field(default_factory=list)  # V1.0.5.12 装备位置
 
     @property
     def center(self) -> tuple[int, int]:
@@ -137,6 +146,16 @@ def get_theme(floor_num: int) -> str:
     return "hell"
 
 
+def head_boss_floor_boost(floor_num: int, difficulty: str = "easy") -> float:
+    """V1.0.5.10 头目BOSS楼层缩放系数（floor_manager / combat_scene 共用）
+
+    头目BOSS ATK/HP = 初始 × 难度BOSS倍率 × (1 + (Floor-1) × 难度倍率 / 3)
+    本函数返回其中的 (1 + (Floor-1) × 难度倍率 / 3) 部分
+    """
+    diff_mod = DIFFICULTY_MODIFIERS.get(difficulty, DIFFICULTY_MODIFIERS["easy"])
+    return 1.0 + (floor_num - 1) * diff_mod["hp_scale_per_floor"] / 3.0
+
+
 def _opposite_side(side: str) -> str:
     return {"left": "right", "right": "left", "top": "bottom", "bottom": "top"}[side]
 
@@ -211,7 +230,7 @@ def _get_band_spec(floor_num: int) -> tuple[list[int], float, int]:
 
 
 def _generate_boss_floor(floor_num: int, floor_type: str, difficulty: str = "easy") -> FloorLayout:
-    """V1.0.5.6 BOSS战斗楼层：多房间（出生点 + 分支）
+    """V1.0.5.12 BOSS战斗楼层：多房间（出生点 + 分支）
     头目楼层(10/20)：1 BOSS战 + 2 增强战斗 + 1 特殊宝藏
     首领楼层(30)：  1 BOSS战 + 3 增强战斗
     difficulty: 难度参数
@@ -240,6 +259,11 @@ def _generate_boss_floor(floor_num: int, floor_type: str, difficulty: str = "eas
             _generate_room_grid(room)
             rooms.append(room)
 
+    # V1.0.5.12 为特殊宝藏房间生成宝箱、消耗品和装备
+    for room in rooms:
+        if room.room_type == RoomType.SPECIAL_TREASURE:
+            _generate_special_treasure_room(room)
+
     # 出生点固定 4 分支，各分支仅与出生点相通（增强战斗房间之间不互通）
     _connect_rooms_with_portals(rooms, force_count=BOSS_BRANCH_COUNT,
                                 with_treasure=False, difficulty=difficulty)
@@ -257,9 +281,41 @@ def _generate_boss_floor(floor_num: int, floor_type: str, difficulty: str = "eas
                        floor_portal_room_idx=floor_portal_room_idx)
 
 
+def _generate_special_treasure_room(room: Room) -> None:
+    """V1.0.5.12 为特殊宝藏房间生成宝箱、消耗品和装备
+    规则：4-5个宝箱，7-8个消耗品（至少4瓶药水），2-3件T5及以上装备
+    """
+    walkable = room.get_walkable_cells()
+    random.shuffle(walkable)
+    
+    # 生成宝箱位置（4-5个）
+    chest_count = random.randint(*SPECIAL_TREASURE_ROOM_CHESTS)
+    for i in range(min(chest_count, len(walkable))):
+        room.chests.append(walkable[i])
+    
+    # 生成消耗品位置（7-8个，至少4瓶药水）
+    consumable_count = random.randint(*SPECIAL_TREASURE_ROOM_CONSUMABLES)
+    potion_count = 0
+    for i in range(consumable_count):
+        idx = chest_count + i
+        if idx >= len(walkable):
+            break
+        room.consumable_positions.append(walkable[idx])
+        # 至少4瓶药水
+        if potion_count < SPECIAL_TREASURE_ROOM_MIN_POTIONS:
+            potion_count += 1
+    
+    # 生成装备位置（2-3件T5及以上）
+    equip_count = random.randint(*SPECIAL_TREASURE_ROOM_EQUIP_COUNT)
+    for i in range(equip_count):
+        idx = chest_count + consumable_count + i
+        if idx < len(walkable):
+            room.equip_positions.append(walkable[idx])
+
+
 def _generate_room_grid(room: Room) -> None:
     """为单个房间生成20×15网格
-    值: 0=地板, 1=墙壁, 2=出生点, 3=下一楼层传送门, 4=陷阱, 5=房间传送门
+    值: 0=地板, 1=墙壁, 2=出生点, 3=下一楼层传送门, 4=陷阱, 5=房间传送门, 6=试炼刷怪笼
     """
     grid = [[1] * MAP_COLS for _ in range(MAP_ROWS)]
 
@@ -273,6 +329,12 @@ def _generate_room_grid(room: Room) -> None:
         sx, sy = MAP_COLS // 2 - 1, MAP_ROWS // 2
         grid[sy][sx] = 2
         room.spawn_pos = (sx, sy)
+
+    # V1.0.5.12 副本房间：中央放置试炼刷怪笼
+    if room.room_type == RoomType.DUNGEON:
+        cx, cy = MAP_COLS // 2, MAP_ROWS // 2
+        grid[cy][cx] = 6  # 6=试炼刷怪笼
+        room.spawner_pos = (cx, cy)
 
     room.grid = grid
 
@@ -316,15 +378,15 @@ def _connect_rooms_with_portals(rooms: list[Room],
     sides = ["right", "bottom", "left", "top"]
     random.shuffle(sides)
 
+    # V1.0.5.9 单入口规则: 每个分支房间恰好一个入口（不再复用同一房间生成双入口）
     if force_count is not None:
         n_portals = min(force_count, len(branch_rooms), len(sides))
     else:
-        n_portals = min(len(branch_rooms), len(sides), PORTAL_COUNT_MAX)
-        n_portals = max(n_portals, PORTAL_COUNT_MIN)
+        n_portals = min(len(branch_rooms), len(sides))
 
     for i in range(n_portals):
         side = sides[i]
-        branch_room = branch_rooms[i % len(branch_rooms)]
+        branch_room = branch_rooms[i]
 
         # 出生点房间的传送门位置
         offset = random.randint(PORTAL_MIN_EDGE_DIST, 
@@ -367,44 +429,10 @@ def _place_portal_on_grid(room: Room, portal: Portal) -> None:
         room.grid[row][col] = 5
 
 
-def _is_portal_adjacent(portal1: Portal, portal2: Portal) -> bool:
-    """检查两个传送门是否相邻"""
-    # 同一墙壁上的传送门
-    if portal1.side == portal2.side:
-        return abs(portal1.offset - portal2.offset) <= 1
-    
-    # 相邻墙壁
-    adjacent_walls = {
-        "left": ["top", "bottom"],
-        "right": ["top", "bottom"],
-        "top": ["left", "right"],
-        "bottom": ["left", "right"]
-    }
-    
-    if portal2.side in adjacent_walls.get(portal1.side, []):
-        # 检查角落位置
-        if portal1.side == "left" and portal2.side == "top":
-            return portal1.offset == 0 and portal2.offset == 0
-        elif portal1.side == "left" and portal2.side == "bottom":
-            return portal1.offset == MAP_ROWS - 2 and portal2.offset == MAP_COLS - 2
-        elif portal1.side == "right" and portal2.side == "top":
-            return portal1.offset == 0 and portal2.offset == 0
-        elif portal1.side == "right" and portal2.side == "bottom":
-            return portal1.offset == MAP_ROWS - 2 and portal2.offset == MAP_COLS - 2
-        elif portal1.side == "top" and portal2.side == "left":
-            return portal1.offset == 0 and portal2.offset == 0
-        elif portal1.side == "top" and portal2.side == "right":
-            return portal1.offset == MAP_COLS - 2 and portal2.offset == 0
-        elif portal1.side == "bottom" and portal2.side == "left":
-            return portal1.offset == 0 and portal2.offset == MAP_ROWS - 2
-        elif portal1.side == "bottom" and portal2.side == "right":
-            return portal1.offset == MAP_COLS - 2 and portal2.offset == MAP_ROWS - 2
-    
-    return False
-
-
 def _generate_treasure_rooms(rooms: list[Room], difficulty: str = "easy") -> None:
-    """为战斗房间/副本生成宝藏室（V1.0.5.8 使用难度相关概率）"""
+    """为战斗房间/副本生成宝藏室
+    V1.0.5.12: 宝藏室生成宝箱、消耗品和装备
+    """
     from config import DIFFICULTY_MODIFIERS
     
     # 获取难度相关的宝藏室概率
@@ -424,70 +452,55 @@ def _generate_treasure_rooms(rooms: list[Room], difficulty: str = "easy") -> Non
         if random.random() >= chance:
             continue
         
+        # 宿主房间入口（V1.0.5.9 单入口规则: 有且仅有一个）
+        entrance = room.portals[0] if room.portals else None
+        if entrance is None:
+            continue
+
         # 创建宝藏室
         treasure_room = Room(room_idx=len(rooms), room_type=RoomType.TREASURE)
         _generate_room_grid(treasure_room)
         rooms.append(treasure_room)
-        
-        # 确保宝藏室传送门与出生点房间传送门不相邻（不在同一面墙或相邻墙上）
-        used_sides = set()
-        used_offsets = {}
-        
-        # 收集房间已有的传送门信息
-        for portal in room.portals:
-            used_sides.add(portal.side)
-            if portal.side not in used_offsets:
-                used_offsets[portal.side] = []
-            used_offsets[portal.side].append(portal.offset)
-        
-        # 相邻墙壁映射
-        _ADJACENT_WALLS = {
-            "left": {"top", "bottom"},
-            "right": {"top", "bottom"},
-            "top": {"left", "right"},
-            "bottom": {"left", "right"},
-        }
-        
-        # 禁止使用的墙壁 = 已有传送门的墙壁 + 相邻墙壁
-        blocked_sides = set(used_sides)
-        for side in used_sides:
-            blocked_sides |= _ADJACENT_WALLS.get(side, set())
-        
-        # 选择一个与现有传送门不相邻的位置
-        available_sides = ["left", "right", "top", "bottom"]
-        random.shuffle(available_sides)
-        
-        treasure_portal = None
-        for side in available_sides:
-            if side in blocked_sides:
-                continue
-            
-            # 计算可用的偏移位置
-            max_offset = MAP_COLS - 2 - PORTAL_MIN_EDGE_DIST if side in ("top", "bottom") else MAP_ROWS - 2 - PORTAL_MIN_EDGE_DIST
-            possible_offsets = list(range(PORTAL_MIN_EDGE_DIST, max_offset + 1))
-            
-            # 移除与现有传送门相邻的位置
-            for existing_side, existing_offsets in used_offsets.items():
-                if existing_side == side:
-                    for offset in existing_offsets:
-                        if offset in possible_offsets:
-                            possible_offsets.remove(offset)
-                        if offset - 1 in possible_offsets:
-                            possible_offsets.remove(offset - 1)
-                        if offset + 1 in possible_offsets:
-                            possible_offsets.remove(offset + 1)
-            
-            if possible_offsets:
-                offset = random.choice(possible_offsets)
-                treasure_portal = Portal(
-                    side=side,
-                    offset=offset,
-                    target_room_idx=treasure_room.room_idx,
-                    target_side=_opposite_side(side),
-                    target_offset=offset,
-                    is_floor_portal=False
-                )
+
+        # V1.0.5.12 生成宝箱位置
+        chest_count = random.randint(*TREASURE_ROOM_CHESTS)
+        walkable = treasure_room.get_walkable_cells()
+        random.shuffle(walkable)
+        for i in range(min(chest_count, len(walkable))):
+            treasure_room.chests.append(walkable[i])
+
+        # V1.0.5.12 生成消耗品位置（3-4个，至多2瓶药水）
+        consumable_count = random.randint(*TREASURE_ROOM_CONSUMABLES)
+        potion_count = 0
+        for i in range(consumable_count):
+            if len(walkable) <= chest_count + i:
                 break
+            pos = walkable[chest_count + i]
+            treasure_room.consumable_positions.append(pos)
+            # 至多2瓶药水
+            if potion_count < TREASURE_ROOM_MAX_POTIONS:
+                potion_count += 1
+
+        # V1.0.5.12 生成装备位置（1-2件T5及以下）
+        equip_count = random.randint(*TREASURE_ROOM_EQUIP_COUNT)
+        for i in range(equip_count):
+            idx = chest_count + consumable_count + i
+            if idx < len(walkable):
+                treasure_room.equip_positions.append(walkable[idx])
+
+        # V1.0.5.9 规则: 宝藏室传送门固定位于宿主房间入口的对面墙上（随机偏移）
+        side = _opposite_side(entrance.side)
+        max_offset = (MAP_COLS - 2 - PORTAL_MIN_EDGE_DIST if side in ("top", "bottom")
+                      else MAP_ROWS - 2 - PORTAL_MIN_EDGE_DIST)
+        offset = random.randint(PORTAL_MIN_EDGE_DIST, max_offset)
+        treasure_portal = Portal(
+            side=side,
+            offset=offset,
+            target_room_idx=treasure_room.room_idx,
+            target_side=_opposite_side(side),
+            target_offset=offset,
+            is_floor_portal=False
+        )
         
         if treasure_portal:
             room.portals.append(treasure_portal)
@@ -537,7 +550,6 @@ def spawn_monsters_for_room(room: Room, floor_num: int,
     spawn_mult = diff_mod["spawn_mult"]
     hp_scale = diff_mod["hp_scale_per_floor"]
     atk_scale = diff_mod["atk_scale_per_floor"]
-    cd_scale = diff_mod["cd_scale_per_floor"]
     elite_extra_mult = diff_mod["elite_extra_mult"]
 
     # BOSS楼层的出生点/增强战斗房间：按第一层标准刷怪（V1.0.5.6）
@@ -546,10 +558,11 @@ def spawn_monsters_for_room(room: Room, floor_num: int,
         if get_floor_type(floor_num) in ("boss", "final_boss"):
             actual_floor = 1
 
-    # V1.0.5.8 线性缩放（取代指数缩放）
-    hp_mult = hp_scale ** (actual_floor - 1)
-    atk_mult = atk_scale ** (actual_floor - 1)
-    cd_mult = cd_scale ** (actual_floor - 1)
+    # V1.0.5.10 线性缩放（最新版）: 生物HP/ATK = 初始 × (1 + 难度倍率 × (floor-1))
+    # 攻击冷却不再随楼层缩放（V1.0.5.10 移除）
+    hp_mult = 1.0 + hp_scale * (actual_floor - 1)
+    atk_mult = 1.0 + atk_scale * (actual_floor - 1)
+    cd_mult = 1.0
 
     # 刷怪数量表（V1.0.5.8 设计文档）
     if actual_floor <= 4:
@@ -602,7 +615,7 @@ def spawn_monsters_for_room(room: Room, floor_num: int,
                       hp=hp, max_hp=hp, attack=atk,
                       attack_range=mdef["range"], attack_cooldown=cd,
                       ranged_attacker=mdef.get("ranged", False),
-                      speed=mdef["speed"], x=float(px), y=float(py),
+                      speed=mdef["speed"] * MONSTER_SPEED_SCALE, x=float(px), y=float(py),
                       wither=mdef.get("wither", 0.0), frost=mdef.get("frost", 0.0),
                       burn=mdef.get("burn", 0.0), burn_dmg=mdef.get("burn_dmg", 0),
                       fireball=mdef.get("fireball", 0), fire_interval=mdef.get("fire_interval", 0.0))
@@ -646,11 +659,67 @@ def spawn_monsters_for_room(room: Room, floor_num: int,
                     attack_range=replacement["range"],
                     attack_cooldown=replacement["cd"] * cd_mult,
                     ranged_attacker=replacement.get("ranged", False),
-                    speed=replacement["speed"],
+                    speed=replacement["speed"] * MONSTER_SPEED_SCALE,
                     x=old.x, y=old.y)
                 slime_n -= 1
 
     return monsters
+
+
+def spawn_trial_spawner(room: Room, floor_num: int, difficulty: str = "easy") -> Monster | None:
+    """V1.0.5.12 为副本房间生成试炼刷怪笼
+    血量 = 600 + 30 × (Floor-1)，索敌范围1200，无攻击力，不可移动
+    """
+    if room.room_type != RoomType.DUNGEON or room.spawner_pos is None:
+        return None
+    
+    col, row = room.spawner_pos
+    px = col * TILE_SIZE + TILE_SIZE // 2
+    py = row * TILE_SIZE + TILE_SIZE // 2
+    
+    # 计算血量：600 + 30 × (Floor-1)
+    hp = TRIAL_SPAWNER_BASE_HP + TRIAL_SPAWNER_HP_PER_FLOOR * (floor_num - 1)
+    
+    return Monster(
+        name=TRIAL_SPAWNER["name"],
+        monster_type="trial_spawner",
+        hp=hp,
+        max_hp=hp,
+        attack=0,
+        attack_range=0,
+        attack_cooldown=TRIAL_SPAWNER["cd"],
+        speed=0,
+        x=float(px),
+        y=float(py),
+        detect_range=TRIAL_SPAWNER["detect"],
+        immobile=True,
+        spawn_interval=TRIAL_SPAWNER["spawn_interval"],
+        spawn_timer=TRIAL_SPAWNER["spawn_interval"]
+    )
+
+
+def spawn_chests(room: Room) -> list[Monster]:
+    """V1.0.5.12 为宝藏室/特殊宝藏房间生成宝箱"""
+    chests = []
+    for col, row in room.chests:
+        px = col * TILE_SIZE + TILE_SIZE // 2
+        py = row * TILE_SIZE + TILE_SIZE // 2
+        chest = Monster(
+            name=CHEST["name"],
+            monster_type="chest",
+            hp=CHEST["hp"],
+            max_hp=CHEST["hp"],
+            attack=0,
+            attack_range=0,
+            attack_cooldown=999,
+            speed=0,
+            x=float(px),
+            y=float(py),
+            detect_range=0,
+            immobile=True
+        )
+        chests.append(chest)
+    return chests
 
 
 def spawn_monsters_boss(room: Room,
@@ -677,6 +746,7 @@ def spawn_monsters_boss(room: Room,
         fb_data = FINAL_BOSS
         px = mx * TILE_SIZE + TILE_SIZE // 2
         py = my * TILE_SIZE + TILE_SIZE // 2
+        # V1.0.5.10: 高塔之主基础HP 6000（仅随难度BOSS倍率缩放，不吃楼层公式）
         hp = int(fb_data["hp"] * boss_hp_mult)
         atk_p1 = int(fb_data["atk_p1"] * boss_atk_mult)
         atk_p2 = int(fb_data["atk_p2"] * boss_atk_mult)
@@ -685,9 +755,11 @@ def spawn_monsters_boss(room: Room,
         m = Monster(name=fb_data["name"], monster_type="final_boss",
                     hp=hp, max_hp=hp,
                     attack=atk_p1, attack_range=fb_data["range"],
-                    attack_cooldown=cd_p1, speed=fb_data["speed_p1"],
+                    attack_cooldown=cd_p1, speed=fb_data["speed_p1"] * MONSTER_SPEED_SCALE,
                     x=float(px), y=float(py),
-                    detect_range=fb_data["detect"])
+                    detect_range=fb_data["detect"],
+                    dr_ranged=fb_data["dr_ranged_p1"], dr_melee=fb_data["dr_melee_p1"],
+                    dps_cap=fb_data["dps_cap"], hit_cap=fb_data["hit_cap"])
         monsters.append(m)
         return monsters
 
@@ -698,15 +770,17 @@ def spawn_monsters_boss(room: Room,
         def make_boss(mdef, idx):
             px = (mx + (1 if idx == 0 else -1)) * TILE_SIZE + TILE_SIZE // 2
             py = my * TILE_SIZE + TILE_SIZE // 2
-            hp = int(mdef["hp"] * boss_hp_mult)
-            atk = int(mdef["atk"] * boss_atk_mult)
+            # V1.0.5.10 头目BOSS公式: 初始 × 难度BOSS倍率 × (1 + (Floor-1) × 难度倍率/3)
+            floor_boost = head_boss_floor_boost(floor_num, difficulty)
+            hp = int(mdef["hp"] * boss_hp_mult * floor_boost)
+            atk = int(mdef["atk"] * boss_atk_mult * floor_boost)
             cd = mdef["cd"] * boss_cd_mult
             return Monster(name=mdef["name"], monster_type="head_boss",
                            hp=hp, max_hp=hp,
                            attack=atk, attack_range=mdef["range"],
                            attack_cooldown=cd,
                            ranged_attacker=mdef.get("ranged", False),
-                           speed=mdef["speed"], x=float(px), y=float(py),
+                           speed=mdef["speed"] * MONSTER_SPEED_SCALE, x=float(px), y=float(py),
                            detect_range=mdef.get("detect", 600),
                            dr_ranged=mdef.get("dr_ranged", 0.0),
                            dr_melee=mdef.get("dr_melee", 0.0),

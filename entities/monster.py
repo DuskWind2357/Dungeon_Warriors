@@ -1,8 +1,9 @@
 """
-Dungeon Warriors V1.0.5.8 — 怪物数据类（平衡性重做）
+Dungeon Warriors V1.0.5.12 — 怪物数据类（平衡性重做）
 攻击范围、冷却时间、BOSS多阶段、召唤系统、击退定身、循伤索敌
 """
 
+import pygame
 from dataclasses import dataclass, field
 from config import MONSTER_SPEED, MONSTER_DETECT_RANGE, TILE_SIZE
 
@@ -22,7 +23,7 @@ class Monster:
     x: float = 0.0
     y: float = 0.0
     cooldown_remaining: float = 0.0   # 当前剩余冷却（秒）
-    speed: int = MONSTER_SPEED
+    speed: float = MONSTER_SPEED
     alive: bool = True
     aggro: bool = False       # 是否已进入战斗状态
 
@@ -59,8 +60,22 @@ class Monster:
     combo_hits: int = 1                 # 连击次数（暗黑骑士）
     combo_interval: float = 0.0         # 连击间隔
 
+    # V1.0.5.9 首领伤害上限 / 锁血 / 技能状态
+    dps_cap: float = 0.0                # 每秒承受最大伤害（0=不限制，仅首领使用）
+    hit_cap: float = 0.0                # 单次承受最大伤害（0=不限制，仅首领使用）
+    locked: bool = False                # 起死回生锁血（HP 最低保留 1，不会死亡）
+    dr_bonus: float = 0.0               # 额外伤害减免（0~1，与基础减免叠加）
+    _dmg_window_start: float = 0.0      # dps 滚动窗口起点（pygame 秒）
+    _dmg_window_sum: float = 0.0        # 窗口内已承受伤害累计
+
+    # V1.0.5.12 不可移动实体（宝箱/试炼刷怪笼）
+    immobile: bool = False              # 是否不可移动
+    spawn_timer: float = 0.0            # 召唤计时器（试炼刷怪笼专用）
+    spawn_interval: float = 0.0         # 召唤间隔（秒，0=不召唤）
+    ambient_timer: float = 0.0          # 环境音计时器（试炼刷怪笼专用）
+
     def take_damage(self, damage: int, is_ranged: bool = False) -> bool:
-        """受到伤害（含减免），返回是否死亡"""
+        """受到伤害（含减免/单次上限/每秒上限/锁血），返回是否死亡"""
         # 计算伤害减免
         if is_ranged:
             reduction = self.dr_ranged
@@ -68,8 +83,31 @@ class Monster:
             reduction = self.dr_melee
         # 兼容旧代码的 damage_reduction
         reduction = max(reduction, self.damage_reduction)
-        reduced = int(damage * (1 - reduction))
-        self.hp = max(0, self.hp - reduced)
+        # V1.0.5.9: 额外减免（起死回生等）叠加并封顶
+        reduction = min(1.0, reduction + self.dr_bonus)
+        reduced = damage * (1 - reduction)
+
+        # V1.0.5.9: 单次承受上限
+        if self.hit_cap > 0:
+            reduced = min(reduced, self.hit_cap)
+
+        # V1.0.5.9: 每秒承受上限（1 秒滚动窗口）
+        if self.dps_cap > 0:
+            now = pygame.time.get_ticks() / 1000.0
+            if now - self._dmg_window_start >= 1.0:
+                self._dmg_window_start = now
+                self._dmg_window_sum = 0.0
+            if self._dmg_window_sum + reduced > self.dps_cap:
+                reduced = max(0.0, self.dps_cap - self._dmg_window_sum)
+            self._dmg_window_sum += reduced
+
+        dmg_int = int(round(reduced))
+        # V1.0.5.9: 起死回生锁血（HP 最低保留 1，不会死亡）
+        if self.locked:
+            self.hp = max(1, self.hp - dmg_int)
+            return False
+
+        self.hp = max(0, self.hp - dmg_int)
         if self.hp <= 0:
             self.alive = False
         return not self.alive
@@ -87,7 +125,7 @@ class Monster:
 
     def check_phase_transition(self) -> bool:
         """
-        检查并执行 BOSS 阶段转换。
+        检查并执行 BOSS 阶段转换（V1.0.5.9: 阶段属性按文档比例切换）。
         返回 True 表示阶段发生了变化。
         """
         if self.monster_type != "final_boss":
@@ -95,15 +133,23 @@ class Monster:
 
         hp_pct = self.hp_ratio
 
-        # 远程免疫（HP<25%）
-        if hp_pct < 0.25 and not self.ranged_immune:
+        # 三阶段（HP<25%）：30%近战减免 + 免疫远程 + 速度×(1.8/1.5)
+        if hp_pct < 0.25 and self.phase == 2:
+            self.phase = 3
+            self.dr_melee = 0.30
+            self.dr_ranged = 1.00
             self.ranged_immune = True
+            self.speed = self.speed * (1.8 / 1.5)
             return True
 
-        # 二阶段（HP<50%）
+        # 二阶段（HP<50%）：攻击×(15/12) 冷却×(1.0/1.2) 速度×(1.5/1.2) DR 40/20
         if hp_pct < 0.50 and self.phase == 1:
             self.phase = 2
-            # V1.0.5.8: 二阶段属性由外部传入，此处不硬编码
+            self.attack = round(self.attack * (15 / 12))
+            self.attack_cooldown = self.attack_cooldown * (1.0 / 1.2)
+            self.speed = self.speed * (1.5 / 1.2)
+            self.dr_ranged = 0.40
+            self.dr_melee = 0.20
             return True
 
         return False

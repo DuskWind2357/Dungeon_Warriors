@@ -1,5 +1,5 @@
 ﻿"""
-Dungeon Warriors — 渲染器
+Dungeon Warriors V1.0.5.12 — 渲染器
 绘制地图、玩家、怪物、掉落物品、HUD
 """
 
@@ -9,6 +9,7 @@ import random
 import pygame
 from config import (
     TILE_SIZE, MAP_COLS, MAP_ROWS,
+    TOTAL_FLOORS, HUD_WHITE_FLOOR_RANGES,
     COLOR_BG, COLOR_WALL, COLOR_FLOOR,
     COLOR_SPAWN, COLOR_PORTAL,
     COLOR_PLAYER,
@@ -52,14 +53,17 @@ MONSTER_ICON_MAP: dict[str, str] = {
     "暗影骑士": "icon/WitherSkeletonFace.png",
     "暗黑骑士": "icon/WitherFace.png",
     "炎魔": "icon/WildfireFace.webp",
-    "掠夺者突袭队长": "icon/EnchanterFace.webp",
+    "掠夺者突袭队长": "icon/120px-TowerGuardFace.webp",   # V1.0.5.11 图标更换
     "卫道士突袭队长": "icon/RoyalGuardFace.webp",
     "冰霜僵尸": "icon/FrozenZombieFace.webp",
     "流髑": "icon/StrayFace.png",
+    # V1.0.5.12 新增特殊实体图标
+    "宝箱": "icon/BlockSprite_chest-front.png",
+    "试炼刷怪笼": "icon/BlockSprite_trial-spawner-inactive.webp",
 }
 # 高塔之主按阶段
 BOSS_PHASE_ICONS: dict[int, str] = {
-    1: "icon/TowerWraithFace.webp",
+    1: "icon/WraithFace.webp",   # V1.0.5.11 第一阶段图标更换
     2: "icon/NamelessOneFace.webp",
     3: "icon/NecromancerFace.webp",
 }
@@ -409,15 +413,7 @@ def draw_player(screen: pygame.Surface, player: Player) -> None:
     tip_y = y + math.sin(player.facing_angle) * (size // 2 + 3)
     pygame.draw.circle(screen, (255, 255, 255), (int(tip_x), int(tip_y)), 3)
 
-    # HP 条（在玩家上方）
-    if player.current_hp < player.total_max_hp():
-        bar_width = TILE_SIZE
-        bar_height = 5
-        bar_x = x - bar_width // 2
-        bar_y = y - size // 2 - 12
-        draw_progress_bar(screen, bar_x, bar_y, bar_width, bar_height,
-                          player.current_hp / player.total_max_hp(),
-                          COLOR_HP_BAR)
+    # V1.0.5.12 玩家头顶不显示血条
 
 
 def draw_monster(screen: pygame.Surface, monster: Monster) -> None:
@@ -435,29 +431,34 @@ def _draw_monster_impl(screen: pygame.Surface, monster: Monster) -> None:
     """怪物绘制实现"""
     x, y = int(monster.x), int(monster.y)
 
-    # 根据类型决定大小和颜色
-    size_map = {
-        "normal":      (TILE_SIZE // 3,      COLOR_MONSTER_NORMAL),
-        "elite":       (TILE_SIZE // 3 + 4,  COLOR_MONSTER_ELITE),
-        "head_boss":   (TILE_SIZE // 2 + 2,  COLOR_MONSTER_BOSS),
-        "final_boss":  (TILE_SIZE - 4,       COLOR_MONSTER_FINAL_BOSS),
-    }
-    size, color = size_map.get(monster.monster_type, (TILE_SIZE // 3, COLOR_MONSTER_NORMAL))
+    # V1.0.5.12 特殊实体使用方块大小
+    if monster.monster_type in ("chest", "trial_spawner"):
+        size = TILE_SIZE
+        color = (120, 80, 50) if monster.monster_type == "chest" else (120, 120, 120)
+    else:
+        # 根据类型决定大小和颜色
+        size_map = {
+            "normal":      (TILE_SIZE // 3,      COLOR_MONSTER_NORMAL),
+            "elite":       (TILE_SIZE // 3 + 4,  COLOR_MONSTER_ELITE),
+            "head_boss":   (TILE_SIZE // 2 + 2,  COLOR_MONSTER_BOSS),
+            "final_boss":  (TILE_SIZE - 4,       COLOR_MONSTER_FINAL_BOSS),
+        }
+        size, color = size_map.get(monster.monster_type, (TILE_SIZE // 3, COLOR_MONSTER_NORMAL))
 
-    # 普通怪物按名称个性化颜色
-    name_colors = {
-        "僵尸":  (60, 140, 40),
-        "骷髅":  (220, 220, 220),
-        "蜘蛛":  (60, 55, 55),
-        "蝙蝠":  (30, 30, 30),
-        "大型史莱姆": (80, 220, 60),
-        "中型史莱姆": (80, 220, 60),
-        "小型史莱姆": (80, 220, 60),
-        "小型岩浆史莱姆": (220, 60, 40),
-        "中型岩浆史莱姆": (220, 60, 40),
-    }
-    if monster.name in name_colors:
-        color = name_colors[monster.name]
+        # 普通怪物按名称个性化颜色
+        name_colors = {
+            "僵尸":  (60, 140, 40),
+            "骷髅":  (220, 220, 220),
+            "蜘蛛":  (60, 55, 55),
+            "蝙蝠":  (30, 30, 30),
+            "大型史莱姆": (80, 220, 60),
+            "中型史莱姆": (80, 220, 60),
+            "小型史莱姆": (80, 220, 60),
+            "小型岩浆史莱姆": (220, 60, 40),
+            "中型岩浆史莱姆": (220, 60, 40),
+        }
+        if monster.name in name_colors:
+            color = name_colors[monster.name]
 
     half = size // 2
     rect = pygame.Rect(x - half, y - half, size, size)
@@ -474,13 +475,14 @@ def _draw_monster_impl(screen: pygame.Surface, monster: Monster) -> None:
         pygame.draw.rect(screen, color, rect, border_radius=4)
         pygame.draw.rect(screen, (255, 255, 255, 60), rect, width=1, border_radius=4)
 
-    # HP 条
-    bar_width = TILE_SIZE
-    bar_height = 4
-    bar_x = x - bar_width // 2
-    bar_y = y - half - 10
-    draw_progress_bar(screen, bar_x, bar_y, bar_width, bar_height,
-                      monster.hp_ratio, COLOR_HP_BAR)
+    # V1.0.5.12 HP 条（宝箱不显示血条；V1.0.5.12 补丁: 试炼刷怪笼要求显示）
+    if monster.monster_type != "chest":
+        bar_width = TILE_SIZE
+        bar_height = 4
+        bar_x = x - bar_width // 2
+        bar_y = y - half - 10
+        draw_progress_bar(screen, bar_x, bar_y, bar_width, bar_height,
+                          monster.hp_ratio, COLOR_HP_BAR)
 
     # 怪物名称（深灰色，不加粗）
     font_small = _get_small_font()
@@ -545,10 +547,11 @@ def draw_hud(screen: pygame.Surface, player: Player,
 
     # 第一行：生命值 + 当前楼层 + 剩余生命条数（雪地/地狱层白色，其余深灰）
     hp_text = f"生命值: {player.current_hp}/{max_hp}"
-    floor_text = f"当前楼层: {current_floor}/30"
+    floor_text = f"当前楼层: {current_floor}/{TOTAL_FLOORS}"
     revive_text = f"剩余生命条数: {revive_count}"
     first_line = f"{hp_text}   {floor_text}   {revive_text}"
-    hud_color = (255, 255, 255) if current_floor in range(11, 20) or current_floor in range(21, 30) else COLOR_HUD
+    hud_color = (255, 255, 255) if any(lo <= current_floor <= hi
+                                       for lo, hi in HUD_WHITE_FLOOR_RANGES) else COLOR_HUD
 
     y_offset = 10
     surf = font.render(first_line, True, hud_color)
@@ -560,17 +563,7 @@ def draw_hud(screen: pygame.Surface, player: Player,
     draw_progress_bar(screen, 10, y_offset + 2, bar_width, 10,
                       player.current_hp / max_hp, COLOR_HP_BAR)
 
-    # 装备（左下方，与首行同色）
-    equip_y = y_offset + 18
-    mw = player.melee_weapon
-    rw = player.ranged_weapon
-    weapon_text = f"M: {mw.name} (+{mw.attack_bonus})" if mw else "M: None"
-    ranged_text = f"R: {rw.name} (+{rw.attack_bonus})" if rw else "R: None"
-    armor_text = f"A: {player.armor.name}" if player.armor else "A: None"
-    for text in [weapon_text, ranged_text, armor_text]:
-        surf = font.render(text, True, hud_color)
-        screen.blit(surf, (10, equip_y))
-        equip_y += 18
+    # V1.0.5.11: 移除战斗界面装备信息显示（M:/R:/A: 三行已删除）
 
     # 右上：BUFF 列表（V1.0.4：统一“名称 秒数”格式与主题色）
     buff_y = 10
@@ -621,16 +614,41 @@ def draw_toast(screen: pygame.Surface, toast: dict | None,
                font: pygame.font.Font | None = None,
                offset: int = 0,
                color: tuple = None) -> None:
-    """绘制 toast 消息（渐隐），offset 用于多条堆叠"""
+    """绘制 toast 消息（渐隐），offset 用于多条堆叠
+    支持多段着色：toast["segments"] = [(text, color), ...]
+    """
     if toast is None or toast["timer"] <= 0:
         return
 
     if font is None:
         font = _get_default_font()
+
+    alpha = int(255 * min(1.0, toast["timer"] / 0.5))
+
+    # 多段着色渲染
+    segments = toast.get("segments")
+    if segments:
+        # 计算总宽度
+        segment_surfs = []
+        total_width = 0
+        for text, seg_color in segments:
+            seg_surf = font.render(text, True, seg_color)
+            segment_surfs.append(seg_surf)
+            total_width += seg_surf.get_width()
+        # 居中绘制
+        screen_w = screen.get_width()
+        base_y = screen.get_height() // 2 + 150
+        x = screen_w // 2 - total_width // 2
+        y = base_y + offset * 28
+        for seg_surf in segment_surfs:
+            seg_surf.set_alpha(alpha)
+            screen.blit(seg_surf, (x, y))
+            x += seg_surf.get_width()
+        return
+
     if color is None:
         color = toast.get("color") or COLOR_HP_BAR
 
-    alpha = int(255 * min(1.0, toast["timer"] / 0.5))
     text_surf = font.render(toast["text"], True, color)
     text_surf.set_alpha(alpha)
 
@@ -735,3 +753,79 @@ def get_hud_font() -> pygame.font.Font:
     """获取 HUD 字体"""
     return _get_font(18)
 
+
+
+# ================================================================
+# V1.0.5.11 近战弧形剑气特效（120°白色弧光, 快速淡出）
+# V1.0.5.12 补丁: 支持按特效自定义 角度/颜色/时长（剑三段式 75°白色 / 45°金色）
+# ================================================================
+SLASH_ARC_SPAN = math.radians(120)   # 剑气弧形角度
+SLASH_DURATION = 0.18                # 特效存活秒数
+
+def draw_slash_effects(screen: pygame.Surface, effects: list) -> None:
+    """绘制近战剑气: 以挥击方向为中心的弧线, 亮度/线宽随时间衰减
+    特效 dict 可选字段: span_deg(总角度), color(RGB), dur(存活秒数)
+    """
+    for s in effects:
+        t = s.get("t", 0.0)
+        dur = float(s.get("dur", SLASH_DURATION))
+        p = max(0.0, min(1.0, t / dur)) if dur > 0 else 1.0
+        fade = 1.0 - p
+        if fade <= 0:
+            continue
+        radius = int(s.get("radius", TILE_SIZE))
+        cx, cy = int(s["x"]), int(s["y"])
+        span = math.radians(float(s.get("span_deg", 120.0)))
+        color = tuple(int(c) for c in s.get("color", (255, 255, 255)))
+        base = s.get("angle", 0.0) - span / 2 + span * p * 0.25
+        steps = 20
+        for width, rr, alpha in ((5, radius, fade), (3, max(6, radius - 8), fade * 0.8)):
+            if rr <= 0 or alpha <= 0:
+                continue
+            col = (int(color[0] * alpha), int(color[1] * alpha), int(color[2] * alpha))
+            pts = []
+            for k in range(steps + 1):
+                th = base + span * (k / steps) * (1.0 - 0.15 * p)
+                pts.append((cx + math.cos(th) * rr, cy + math.sin(th) * rr))
+            pygame.draw.lines(screen, col, False, pts, width)
+
+
+# ================================================================
+# V1.0.5.12 连击&战斗特效: V形剑气（沿攻击方向向前飞行, 开口朝向玩家）
+# 每条剑气可指定 张角/颜色/臂长（剑·斧金V120° / 矛金V60° / 矛·匕首白V45°）
+# ================================================================
+V_SLASH_SPAN = math.radians(60.0)   # V形剑气默认张角（每侧30°）
+V_SLASH_LENGTH = 44                 # 单侧臂长 px
+V_SLASH_DURATION = 0.2              # V形剑气默认存活秒数
+
+def draw_v_slashes(screen: pygame.Surface, slashes: list[dict]) -> None:
+    """绘制V形剑气: 顶点位于锋尖(朝前), 两条线段向后张开(开口朝向玩家), 亮度/线宽随时间衰减
+    剑气 dict 可选字段: span_deg(总张角), color(RGB), length(单侧臂长px), dur(存活秒数)
+    """
+    for s in slashes:
+        t = s.get("t", 0.0)
+        dur = float(s.get("dur", V_SLASH_DURATION))
+        p = max(0.0, min(1.0, t / dur)) if dur > 0 else 1.0
+        fade = 1.0 - p
+        if fade <= 0:
+            continue
+        cx, cy = int(s["x"]), int(s["y"])
+        angle = s.get("angle", 0.0)
+        span = math.radians(float(s.get("span_deg", math.degrees(V_SLASH_SPAN))))
+        half = span / 2
+        length = int(s.get("length", V_SLASH_LENGTH))
+        base_color = tuple(int(c) for c in s.get("color", (255, 200, 0)))  # 默认金色
+        # V字开口朝向玩家：顶点朝前(飞行方向)，两臂向后张开
+        back_angle = angle + math.pi
+        for width, alpha in ((5, fade), (3, fade * 0.8)):
+            if alpha <= 0:
+                continue
+            col = (int(base_color[0] * alpha),
+                   int(base_color[1] * alpha),
+                   int(base_color[2] * alpha))
+            tip_l = (cx + math.cos(back_angle - half) * length,
+                     cy + math.sin(back_angle - half) * length)
+            tip_r = (cx + math.cos(back_angle + half) * length,
+                     cy + math.sin(back_angle + half) * length)
+            pygame.draw.line(screen, col, (cx, cy), tip_l, width)
+            pygame.draw.line(screen, col, (cx, cy), tip_r, width)

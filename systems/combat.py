@@ -9,11 +9,29 @@ from config import MONSTER_DETECT_RANGE, TILE_SIZE, PROJECTILE_SPEED, PROJECTILE
 from entities.player import Player
 from entities.monster import Monster
 
+# ================================================================
+# V1.0.5.12 微调: 机械链锯（唯一近战过热武器）每2次攻击附加0.05秒冷却
+# （机械弩为远程过热，走 player_ranged_attack 路径，不受此常量影响）
+# ================================================================
+OVERHEAT_BURST_EVERY = 2
+OVERHEAT_BURST_CD = 0.05
 
-def player_melee_attack(player: Player, monsters: list[Monster]) -> list[Monster]:
+
+def player_melee_attack(player: Player, monsters: list[Monster],
+                        *,
+                        stage_mult: float = 1.0,
+                        override_range: float | None = None,
+                        fan_angle_deg: float = 145.0,
+                        manage_cooldown: bool = True) -> list[Monster]:
     """
     玩家近战攻击：根据武器类型执行不同逻辑。
     返回被击中的怪物列表。
+
+    V1.0.5.12 补丁 新增参数（剑三段式攻击专用）:
+    - stage_mult: 本次攻击基础伤害倍率（伤害 = 等级基础伤害 × 基础伤害倍率）
+    - override_range: 覆盖攻击范围（格），None 时用武器自带值
+    - fan_angle_deg: 扇形判定总角度（度）; 默认145° 与原版 dot<0.3 等价（保持其他武器不变）
+    - manage_cooldown: 是否由本函数管理冷却（剑三段式由调用方管理段间冷却 0.2s）
     """
     weapon = player.melee_weapon
     if not weapon or weapon.category != "melee":
@@ -21,34 +39,45 @@ def player_melee_attack(player: Player, monsters: list[Monster]) -> list[Monster
     if player.attack_cooldown > 0:
         return []
 
-    atk = player.total_melee_attack()
+    atk = player.total_melee_attack() * stage_mult
     if atk <= 0:
         return []
 
     # 连击系统
-    if weapon.combo_count > 1:
-        player.combo_counter += 1
-        if player.combo_counter >= weapon.combo_count:
+    if manage_cooldown:
+        if weapon.combo_count > 1:
+            player.combo_counter += 1
+            if player.combo_counter >= weapon.combo_count:
+                player.attack_cooldown = weapon.cooldown
+                player.combo_counter = 0
+        elif weapon.overheat_count > 0:
+            # 过热机制
+            if not hasattr(player, '_overheat_cnt'): player._overheat_cnt = 0
+            player._overheat_cnt += 1
+            if player._overheat_cnt >= weapon.overheat_count:
+                player.attack_cooldown = weapon.overheat_cd
+                player._overheat_cnt = 0
+                player._overheat_msg = True
+            else:
+                # V1.0.5.12 微调: 每2次攻击附加0.05s冷却（机械链锯攻击节奏）
+                if player._overheat_cnt % OVERHEAT_BURST_EVERY == 0:
+                    player.attack_cooldown = max(player.attack_cooldown, OVERHEAT_BURST_CD)
+            # 未过热时不设其他冷却
+        else:
             player.attack_cooldown = weapon.cooldown
-            player.combo_counter = 0
-    elif weapon.overheat_count > 0:
-        # 过热机制
-        if not hasattr(player, '_overheat_cnt'): player._overheat_cnt = 0
-        player._overheat_cnt += 1
-        if player._overheat_cnt >= weapon.overheat_count:
-            player.attack_cooldown = weapon.overheat_cd
-            player._overheat_cnt = 0
-            player._overheat_msg = True
-        # 未过热时不设冷却
-    else:
-        player.attack_cooldown = weapon.cooldown
 
     # 范围判定
-    attack_range_px = weapon.attack_range * TILE_SIZE
+    if override_range is not None:
+        attack_range_px = override_range * TILE_SIZE
+    else:
+        attack_range_px = weapon.attack_range * TILE_SIZE
 
     # 朝向向量
     dx = math.cos(player.facing_angle)
     dy = math.sin(player.facing_angle)
+
+    # 扇形判定阈值（dot >= cos(半角) 视为命中）
+    dot_threshold = math.cos(math.radians(fan_angle_deg / 2.0))
 
     hit_monsters: list[Monster] = []
 
@@ -66,7 +95,7 @@ def player_melee_attack(player: Player, monsters: list[Monster]) -> list[Monster
         # 扇形判定（dot product）
         if dist > 0:
             dot = (mx / dist) * dx + (my / dist) * dy
-            if dot < 0.3:
+            if dot < dot_threshold:
                 continue
 
         _deal_damage_to_monster(player, monster, atk, hit_monsters)
@@ -161,8 +190,8 @@ def projectile_hit_monster(projectile: dict, monster: Monster,
     # 秒杀判定（杀戮之弩）
     if weapon and weapon.instakill:
         rate = weapon.instakill.get(monster.monster_type, 0)
-        # 首领只有在 HP>30% 时才可能被秒杀
-        if monster.monster_type == "final_boss" and monster.hp_ratio <= 0.30:
+        # V1.0.5.10: 移除杀戮之弩对BOSS（头目/首领）的斩杀
+        if monster.monster_type in ("head_boss", "final_boss"):
             rate = 0
         if rate > 0 and random.random() < rate:
             monster.hp = 0
@@ -190,7 +219,8 @@ def _deal_damage_to_monster(player: Player, monster: Monster,
     weapon = player.melee_weapon
     if weapon and weapon.instakill:
         rate = weapon.instakill.get(monster.monster_type, 0)
-        if monster.monster_type == "final_boss" and monster.hp_ratio <= 0.30:
+        # V1.0.5.10: 移除杀戮之弩对BOSS（头目/首领）的斩杀
+        if monster.monster_type in ("head_boss", "final_boss"):
             rate = 0
         if rate > 0 and random.random() < rate:
             monster.hp = 0
@@ -221,8 +251,21 @@ def monster_attack_player(monster: Monster, player: Player) -> bool:
     if dist > attack_range_px + 5:
         return False
 
-    player.take_damage(monster.attack)
-    monster.cooldown_remaining = monster.attack_cooldown
+    # V1.0.5.9: 技能伤害修正（闪击/暗影突袭/狂怒/首领输出削减）
+    dmg = float(monster.attack)
+    dmg *= getattr(monster, '_dash_dmg_mult', 1.0)
+    dmg *= getattr(monster, '_assault_dmg_mult', 1.0)
+    dmg *= getattr(monster, '_fury_atk_mult', 1.0)
+    if monster.monster_type == "final_boss":
+        dmg *= getattr(monster, '_output_mult', 1.0)
+    player.take_damage(dmg)
+
+    # 攻击冷却（狂怒期间缩短50%）
+    monster.cooldown_remaining = monster.attack_cooldown * getattr(monster, '_fury_cd_mult', 1.0)
+
+    # V1.0.5.9: 首领被动生命窃取（每次造成伤害 60% 概率回复等量HP）
+    if monster.monster_type == "final_boss" and random.random() < 0.6:
+        monster.hp = min(monster.max_hp, monster.hp + max(1, int(dmg)))
 
     return True
 

@@ -8,7 +8,7 @@ import pygame
 from config import (
     WINDOW_WIDTH, WINDOW_HEIGHT, COLOR_TEXT, COLOR_TITLE,
     COLOR_BUTTON, COLOR_BUTTON_HOVER, COLOR_BUTTON_BORDER, COLOR_BUTTON_TEXT,
-    MAX_REVIVES,
+    MAX_REVIVES, DIFFICULTY_MODIFIERS, MYSTERY_REWARD_WEIGHTS,
 )
 from entities.player import Player
 from entities.item import Weapon, Armor, Consumable
@@ -26,12 +26,17 @@ class RewardScene:
 
     def __init__(self, player: Player, backpack: list,
                  revive_system, current_floor: int,
-                 auto_destroy: bool = False) -> None:
+                 auto_destroy: bool = False,
+                 difficulty: str = "easy") -> None:
         self.player = player
         self.backpack = backpack
         self.revive_system = revive_system
         self.current_floor = current_floor
+        # V1.0.5.12 BUG20 修复: 传入的 current_floor 已在 combat_scene._on_floor_clear
+        # 中 +1（= 下一层楼层号，供存档/进入下一层使用）；"通关"展示应为刚清空的楼层
+        self.cleared_floor = current_floor - 1
         self.auto_destroy = auto_destroy
+        self.difficulty = difficulty  # V1.0.5.10: 升级/神秘奖励概率按难度
 
         # 生成4个奖励选项
         self.options: list[tuple[str, str, object | None]] = []
@@ -62,7 +67,10 @@ class RewardScene:
         self.options = [melee, ranged, armor, mystery]
 
     def _gen_upgrade(self, category: str) -> tuple[str, str, object | None]:
-        """生成升级奖励"""
+        """生成升级奖励（V1.0.5.10: 满级时特殊装备概率按难度 45%/75%/100%）"""
+        special_chance = DIFFICULTY_MODIFIERS.get(
+            self.difficulty, DIFFICULTY_MODIFIERS["easy"]).get(
+            "upgrade_special_chance", 0.45)
         current_tier = 0
         if category == "melee" and self.player.melee_weapon:
             current_tier = self.player.melee_weapon.tier
@@ -77,7 +85,7 @@ class RewardScene:
         if category == "melee":
             wtypes = ["sword", "axe", "spear", "dagger"]
             wtype = random.choice(wtypes)
-            if is_max and random.random() < 0.45:
+            if is_max and random.random() < special_chance:
                 special_names = ["三叉戟", "机械链锯"]
                 name = random.choice(special_names)
                 item = WEAPON_BY_NAME.get(name)
@@ -88,7 +96,7 @@ class RewardScene:
 
         elif category == "ranged":
             wtype = "bow" if random.random() < 0.5 else "crossbow"
-            if is_max and random.random() < 0.45:
+            if is_max and random.random() < special_chance:
                 special_names = ["精英之弓", "杀戮之弩", "机械弩", "幻术师之弓"]
                 name = random.choice(special_names)
                 item = WEAPON_BY_NAME.get(name)
@@ -98,7 +106,7 @@ class RewardScene:
             desc = item.name if item else "无"
 
         else:  # armor
-            if is_max and random.random() < 0.45:
+            if is_max and random.random() < special_chance:
                 special_names = ["幻影长袍", "高地战甲", "守卫者之甲", "凋零之甲"]
                 name = random.choice(special_names)
                 item = ARMOR_BY_NAME.get(name)
@@ -111,26 +119,35 @@ class RewardScene:
         return (label, desc, item)
 
     def _gen_mystery(self) -> tuple[str, str, object | None]:
-        """生成神秘奖励（选择前隐藏内容）。复活选项始终可刷出，满条时确认仅提示。"""
-        roll = random.random()
-        if roll < 0.20:
+        """生成神秘奖励（选择前隐藏内容）。复活选项始终可刷出，满条时确认仅提示。
+        V1.0.5.10: 概率表按难度取值（MYSTERY_REWARD_WEIGHTS，单位%）:
+          默认: 20%复活 / 各5%药水×2 / 各15%单瓶
+          冒险: 40%复活 / 各10%药水×2 / 各5%单瓶
+          末日: 60%复活 / 各10%药水×2 / 各0%单瓶
+        所需空位: 复活0 / 药水×2为2 / 单瓶1
+        """
+        w = MYSTERY_REWARD_WEIGHTS.get(self.difficulty,
+                                       MYSTERY_REWARD_WEIGHTS["easy"])
+        potions = [HEALTH_POTION, STRENGTH_POTION, SWIFT_POTION, INVIS_POTION]
+        # 构造累积区间: 复活 → 药水×2（各double%） → 单瓶（各single%）
+        bounds: list[tuple[float, object]] = []
+        cursor = w["revive"]
+        if w["double"] > 0:
+            for p in potions:
+                cursor += w["double"]
+                bounds.append((cursor, [p, p]))
+        if w["single"] > 0:
+            for p in potions:
+                cursor += w["single"]
+                bounds.append((cursor, p))
+        roll = random.random() * 100.0
+        if roll < w["revive"]:
             return ("神秘奖励", "???", "revive")
-        elif roll < 0.25:
-            return ("神秘奖励", "???", [HEALTH_POTION, HEALTH_POTION])
-        elif roll < 0.30:
-            return ("神秘奖励", "???", [STRENGTH_POTION, STRENGTH_POTION])
-        elif roll < 0.35:
-            return ("神秘奖励", "???", [SWIFT_POTION, SWIFT_POTION])
-        elif roll < 0.40:
-            return ("神秘奖励", "???", [INVIS_POTION, INVIS_POTION])
-        elif roll < 0.55:
-            return ("神秘奖励", "???", HEALTH_POTION)
-        elif roll < 0.70:
-            return ("神秘奖励", "???", STRENGTH_POTION)
-        elif roll < 0.85:
-            return ("神秘奖励", "???", SWIFT_POTION)
-        else:
-            return ("神秘奖励", "???", INVIS_POTION)
+        for bound, reward in bounds:
+            if roll < bound:
+                return ("神秘奖励", "???", reward)
+        # 兜底（权重合计不足100%时）：药水×2
+        return ("神秘奖励", "???", [HEALTH_POTION, HEALTH_POTION])
 
     def _layout_buttons(self) -> None:
         self.buttons = []
@@ -312,7 +329,7 @@ class RewardScene:
         screen.blit(title, title.get_rect(center=(cx, 120)))
 
         floor_text = get_font(24).render(
-            f"第 {self.current_floor} 层 通关", True, COLOR_TEXT)
+            f"第 {self.cleared_floor} 层 通关", True, COLOR_TEXT)
         screen.blit(floor_text, floor_text.get_rect(center=(cx, 170)))
 
         # 背包容量警告

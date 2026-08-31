@@ -1,5 +1,5 @@
 """
-Dungeon Warriors V1.0.5.8 — 战斗场景（核心玩法，平衡性重做）
+Dungeon Warriors V1.0.5.12 — 战斗场景（核心玩法，平衡性重做）
 V1.0.5 多房间楼层架构、墙壁传送门系统
 """
 
@@ -8,20 +8,25 @@ import random
 import pygame
 from config import (
     TILE_SIZE, MAP_COLS, MAP_ROWS, FPS, SPAWN_DELAY_SEC,
-    PLAYER_BASE_SPEED,
+    PLAYER_BASE_SPEED, GLOBAL_SPEED_MULT,
     PROJECTILE_SPEED, PROJECTILE_RANGE, PROJECTILE_SIZE,
     ENEMY_ARROW_SPEED, ENEMY_ARROW_RANGE,
     FIREBALL_SPEED, FIREBALL_RANGE,
     ICE_FIREBALL_SPEED, ICE_FIREBALL_RANGE,
     ICE_BOMB_SPEED, ICE_BOMB_RANGE,
-    MONSTER_DETECT_RANGE, MONSTER_SPEED,
-    MONSTER_FINAL_BOSS_SUMMON_INTERVAL, MONSTER_FINAL_BOSS_SUMMON_CHANCE,
+    ENEMY_PROJECTILE_SPEED_MULT,
+    MONSTER_DETECT_RANGE, MONSTER_SPEED, MONSTER_SPEED_SCALE,
+    DIFFICULTY_MODIFIERS,
     DROP_NORMAL_POTION, DROP_NORMAL_BREAD,
     DROP_ELITE_POTION, DROP_ELITE_BREAD,
     DROP_BOSS_EQUIP, DROP_BOSS_BREAD, DROP_BOSS_POTION,
     BREAD_HEAL_PER_SEC, BREAD_HEAL_DURATION,
     COLOR_BG, COLOR_PROJECTILE,
     PORTAL_TRAVEL_DELAY, FLOOR_PORTAL_TRAVEL_DELAY,
+    CHEST_DROP_EQUIP_WEIGHTS, CHEST_DROP_POTION_WEIGHTS, CHEST_DROP_BREAD_WEIGHTS,
+    TRIAL_SPAWNER_DROP_POTIONS,
+    TREASURE_ROOM_MAX_POTIONS, TREASURE_ROOM_EQUIP_MAX_TIER,
+    SPECIAL_TREASURE_ROOM_MIN_POTIONS,
 )
 from entities.player import Player
 from entities.monster import Monster
@@ -33,7 +38,9 @@ from systems.combat import (
 from systems.inventory import add_item, consume_item
 from systems.floor_manager import (
     generate_floor, spawn_monsters_for_room, spawn_monsters_boss,
+    spawn_trial_spawner, spawn_chests,
     get_floor_type, get_theme, place_traps, FloorLayout, Room, RoomType,
+    head_boss_floor_boost,
 )
 from systems.pathfinding import astar, simplify_path, pixel_to_grid, grid_to_pixel, random_walkable
 from systems.save_system import save_game
@@ -41,6 +48,7 @@ from systems.revive_system import ReviveSystem
 from systems.audio_manager import AudioManager
 from rendering.renderer import (
     draw_map, draw_player, draw_monster, draw_drops, draw_hud, draw_toast,
+    draw_slash_effects, draw_v_slashes,
     get_bold_font,
     get_bold_hud_font,
 )
@@ -49,6 +57,57 @@ from data.weapons import WEAPON_BY_NAME, WEAPON_BY_TYPE_TIER
 from data.armor import ARMOR_BY_TIER
 from data.consumables import BREAD, POTION_POOL
 from data.keys import TREASURE_KEY
+from data.monsters import (
+    NORMAL_MONSTERS, ELITE_MONSTERS, SNOW_ELITE_MONSTERS,
+    NATURAL_NORMAL, FINAL_BOSS, HEAD_BOSS_MELEE, HEAD_BOSS_RANGED,
+    TRIAL_SPAWN_WEIGHTS,
+)
+
+
+# ================================================================
+# V1.0.5.12 连击&战斗特效：近战武器连击系统（剑/斧/矛/匕首）
+# 段参数: range(判定范围,格) / angle(扇形判定角,°) / mult(基础伤害倍率)
+#         fx: ("arc", 颜色, 弧形跨度°) 原地弧形剑气 | ("v", 颜色, V形张角°) 向前飞行V形剑气
+# 三叉戟沿用矛(spear)同一套机制, 唯一区别为基础伤害; 机械链锯维持过热机制不参与连击
+# ================================================================
+COMBO_RESET_SECONDS = 3.0       # 间隔 3 秒不攻击，连击段数自动重置
+COMBO_TABLES = {
+    # 剑: 三段, 段间0.2s, 无最终冷却
+    "sword": {"interval": 0.2, "final_cd": 0.0, "stages": [
+        {"range": 1.5, "angle": 75.0,  "mult": 1.0,        "fx": ("arc", (255, 255, 255), 75)},
+        {"range": 1.5, "angle": 75.0,  "mult": 1.0,        "fx": ("arc", (255, 255, 255), 75)},
+        {"range": 1.8, "angle": 100.0, "mult": 1.5,        "fx": ("v",   (255, 200, 0), 120)},
+    ]},
+    # 斧: 三段, 段间0.5s, 无最终冷却
+    "axe": {"interval": 0.5, "final_cd": 0.0, "stages": [
+        {"range": 1.8, "angle": 100.0, "mult": 1.0,        "fx": ("arc", (255, 255, 255), 100)},
+        {"range": 1.8, "angle": 100.0, "mult": 1.0,        "fx": ("arc", (255, 255, 255), 100)},
+        {"range": 2.0, "angle": 120.0, "mult": 5.0 / 3.0,  "fx": ("v",   (255, 200, 0), 120)},
+    ]},
+    # 矛: 三段连击(3次后进入冷却1.5s), 段间0.1s
+    "spear": {"interval": 0.1, "final_cd": 1.5, "stages": [
+        {"range": 2.5, "angle": 45.0,  "mult": 1.0,        "fx": ("v",   (255, 255, 255), 45)},
+        {"range": 2.5, "angle": 45.0,  "mult": 1.0,        "fx": ("v",   (255, 255, 255), 45)},
+        {"range": 3.0, "angle": 60.0,  "mult": 1.5,        "fx": ("v",   (255, 200, 0), 60)},
+    ]},
+    # 匕首: 五段连击(5次后进入冷却1.2s), 段间0.1s; 段1-4 白V45°, 段5 金弧90°
+    "dagger": {"interval": 0.1, "final_cd": 1.2, "stages": [
+        {"range": 1.0, "angle": 45.0,  "mult": 1.0,        "fx": ("v",   (255, 255, 255), 45)},
+        {"range": 1.0, "angle": 45.0,  "mult": 1.0,        "fx": ("v",   (255, 255, 255), 45)},
+        {"range": 1.0, "angle": 45.0,  "mult": 1.0,        "fx": ("v",   (255, 255, 255), 45)},
+        {"range": 1.0, "angle": 45.0,  "mult": 1.0,        "fx": ("v",   (255, 255, 255), 45)},
+        {"range": 1.5, "angle": 90.0,  "mult": 2.0,        "fx": ("arc", (255, 200, 0), 90)},
+    ]},
+}
+CHAINSAW_FX = ("arc", (255, 200, 0), 90)   # 机械链锯: 每次攻击附加 90° 金色弧形剑气
+V_SLASH_SPEED = 432.0           # V形剑气飞行速度 px/s（飞行时长 = 射程px / 速度）
+V_SLASH_DURATION = 0.2          # V形剑气默认存活秒数（未指定 dur 时兜底）
+SHAKE_POWER = 5.0               # 屏幕抖动强度(px)
+SHAKE_DURATION = 0.18           # 屏幕抖动时长（秒）
+FLASH_DURATION = 0.12           # 轻微闪烁时长（秒）
+
+# 独特装备名称集合（拾取提示橙色显示 / 特殊宝藏房间独特装备判定）
+UNIQUE_WEAPON_NAMES = {"三叉戟", "机械链锯", "精英之弓", "杀戮之弩", "机械弩", "幻术师之弓"}
 
 
 class CombatScene:
@@ -69,6 +128,7 @@ class CombatScene:
         self.monsters_killed = monsters_killed
         self.audio = audio_manager
         self.difficulty = difficulty
+        self.player.difficulty = difficulty  # V1.0.5.10: 玩家成长参数随难度
         self.auto_destroy = auto_destroy
 
         # 楼层数据
@@ -81,6 +141,12 @@ class CombatScene:
         self.monsters: list[Monster] = []
         self.drops: dict[int, list[tuple[object, float, float]]] = {}  # room_idx → drops
         self.projectiles: list[dict] = []
+        self.slash_effects: list[dict] = []  # V1.0.5.11 近战弧形剑气特效
+        self.v_slashes: list[dict] = []      # V1.0.5.12 补丁: V形剑气（向前飞行）
+        self._attack_held: bool = False      # V1.0.5.12 连击&战斗特效: 长按左键自动连续近战攻击
+        self._shake_timer: float = 0.0       # V1.0.5.12 补丁: 屏幕抖动剩余时间（秒）
+        self._shake_power: float = 0.0       # V1.0.5.12 补丁: 屏幕抖动强度(px)
+        self._flash_timer: float = 0.0       # V1.0.5.12 补丁: 屏幕轻微闪烁剩余时间（秒）
 
         # V1.0.5 多房间系统
         self.floor_layout: FloorLayout | None = None
@@ -115,6 +181,7 @@ class CombatScene:
 
         # V1.0.5 楼层布局缓存（跨场景持久化，解决地图锁定问题）
         self._floor_layout_cache: dict[int, tuple[FloorLayout, dict[int, bool]]] = floor_layout_cache if floor_layout_cache is not None else {}
+        self._current_bgm_key: str | None = None   # V1.0.5.10 当前播放的楼层BGM key（去重用）
 
         self._init_floor()
 
@@ -143,7 +210,7 @@ class CombatScene:
         if self.current_floor in self._floor_layout_cache:
             self.floor_layout, self.room_cleared = self._floor_layout_cache[self.current_floor]
         else:
-            self.floor_layout = generate_floor(self.current_floor)
+            self.floor_layout = generate_floor(self.current_floor, difficulty=self.difficulty)
             self.room_cleared = {}
             self._floor_layout_cache[self.current_floor] = (self.floor_layout, self.room_cleared)
 
@@ -187,16 +254,61 @@ class CombatScene:
         if self.current_floor >= 21 and self.current_room and self.floor_type not in ("boss", "final_boss"):
             place_traps(self.current_room)
 
+        # V1.0.5.10 按楼层切换 BGM
+        self._update_floor_bgm()
+
+    def _current_floor_bgm_key(self) -> str | None:
+        """V1.0.5.11 音乐播放规则: BOSS楼层非BOSS房间→boss_floor,
+        头目BOSS房间→head_boss_room, 首领BOSS房间→final_boss_room, 其余按主题"""
+        if self.floor_type == 'final_boss':
+            if self.current_room and self.current_room.room_type == RoomType.BOSS_BATTLE:
+                return 'final_boss_room'
+            return 'boss_floor'
+        if self.floor_type == 'boss':
+            if self.current_room and self.current_room.room_type == RoomType.BOSS_BATTLE:
+                return 'head_boss_room'
+            return 'boss_floor'
+        return get_theme(self.current_floor)
+
+    def _update_floor_bgm(self) -> None:
+        """V1.0.5.10: 按楼层切换 BGM（播放/停止, 同 key 去重不重复触发）"""
+        if not self.audio:
+            return
+        bgm_key = self._current_floor_bgm_key()
+        if bgm_key == self._current_bgm_key:
+            return
+        self._current_bgm_key = bgm_key
+        if bgm_key:
+            self.audio.play_floor_bgm(bgm_key)
+        else:
+            self.audio.stop_bgm()
+
     def _spawn_monsters_for_current_room(self) -> None:
         """为当前房间生成怪物"""
         if not self.current_room:
             return
+        room_idx = self.current_room.room_idx
 
-        # 副本房间、宝藏室与特殊宝藏室不刷新怪物
-        if self.current_room.room_type in (RoomType.DUNGEON, RoomType.TREASURE,
-                                           RoomType.SPECIAL_TREASURE):
-            self.monsters = []
-            self.room_monsters[self.current_room.room_idx] = []
+        # 副本房间：生成试炼刷怪笼
+        if self.current_room.room_type == RoomType.DUNGEON:
+            if not self.room_cleared.get(room_idx, False):
+                spawner = spawn_trial_spawner(self.current_room, self.current_floor,
+                                              difficulty=self.difficulty)
+                if spawner:
+                    self.room_monsters[room_idx] = [spawner]
+                    self.monsters = [spawner]
+                    spawner.skill_cd = 0.0
+            return
+
+        # 宝藏室与特殊宝藏室：生成宝箱 + 地面物品
+        if self.current_room.room_type in (RoomType.TREASURE, RoomType.SPECIAL_TREASURE):
+            if not self.room_cleared.get(room_idx, False):
+                chests = spawn_chests(self.current_room)
+                self.room_monsters[room_idx] = chests
+                self.monsters = list(chests)
+                for c in chests:
+                    c.skill_cd = 0.0
+            self._spawn_treasure_ground_items(self.current_room)
             return
 
         from config import DIFFICULTY_MODIFIERS
@@ -264,9 +376,15 @@ class CombatScene:
 
         elif event.type == pygame.MOUSEBUTTONDOWN:
             if event.button == 1:
-                self._player_attack()
+                self._attack_held = True  # V1.0.5.12 连击&战斗特效: 长按左键自动连续近战攻击
+                result = self._player_attack()
+                if result:
+                    return result
             elif event.button == 3:
                 self._player_ranged_fire()
+
+        elif event.type == pygame.MOUSEBUTTONUP and event.button == 1:
+            self._attack_held = False
 
         return None
 
@@ -343,42 +461,163 @@ class CombatScene:
 
         return None
 
-    def _player_attack(self) -> None:
-        """左键攻击，自动朝向鼠标方向"""
+    def _player_attack(self) -> str | None:
+        """左键攻击，自动朝向鼠标方向; 击杀高塔之主时返回 "victory" """
         # 更新朝向为鼠标方向
         mx, my = pygame.mouse.get_pos()
         self.player.facing_angle = math.atan2(my - self.player.y, mx - self.player.x)
         if self.player.melee_weapon:
-            self._do_melee_attack()
+            return self._do_melee_attack()
         elif self.player.ranged_weapon:
             self._player_ranged_fire()
+        return None
 
-    def _do_melee_attack(self) -> None:
+    def _do_melee_attack(self) -> str | None:
+        """近战攻击; 击杀高塔之主时返回 "victory"（V1.0.5.9 即时通关）
+        V1.0.5.12 连击&战斗特效: 剑/斧/矛/匕首走连击段表（三叉戟沿用矛机制）;
+        机械链锯维持过热机制, 每次攻击附加 90° 金色弧形剑气
+        """
+        _w = self.player.melee_weapon
+        if (_w is not None and _w.category == "melee"
+                and _w.weapon_type in COMBO_TABLES
+                and getattr(_w, "overheat_count", 0) == 0):
+            return self._do_combo_attack(_w.weapon_type)
+        # 过热武器（机械链锯）及其他近战: 原攻击路径 + 弧形剑气
+        _w = self.player.melee_weapon
+        if (_w is not None and _w.category == "melee"
+                and self.player.attack_cooldown <= 0
+                and self.player.total_melee_attack() > 0):
+            if getattr(_w, "overheat_count", 0) > 0:
+                _fx_kind, _fx_color, _fx_span = CHAINSAW_FX  # 链锯: 90°金色剑气
+            else:
+                _fx_kind, _fx_color, _fx_span = "arc", (255, 255, 255), 120
+            _reach = (_w.attack_range * TILE_SIZE) if getattr(_w, "attack_range", 0) else TILE_SIZE * 1.5
+            self.slash_effects.append({
+                'x': self.player.x, 'y': self.player.y,
+                'angle': self.player.facing_angle,
+                'radius': max(TILE_SIZE, _reach * 0.85),
+                'span_deg': _fx_span,
+                'color': _fx_color,
+                't': 0.0,
+            })
         hit_monsters = player_melee_attack(self.player, self.monsters)
         if not hit_monsters:
-            return
+            return None
         # 更新近战最后使用时间（V1.0.4 P3 连击归零）
         self._melee_last_used_time = 0.0
+        return self._process_melee_hits(hit_monsters)
+
+    def _trigger_shake_flash(self) -> None:
+        """V1.0.5.12 连击&战斗特效: 触发屏幕抖动 + 轻微闪烁
+        （连击最终段 / 任意暴击 / 幻术师之弓多重箭 / 杀戮之弩斩杀）
+        """
+        self._shake_timer = SHAKE_DURATION
+        self._shake_power = SHAKE_POWER
+        self._flash_timer = FLASH_DURATION
+
+    def _process_melee_hits(self, hit_monsters: list, mult: float = 1.0) -> str | None:
+        """近战命中处理: 暴击(触发屏抖/闪烁)/吸血/音效/击杀
+        击杀高塔之主时返回 "victory"（V1.0.5.9 即时通关）
+        """
         armor = self.player.armor
         crit_mult = 1.0
         if armor and armor.crit_chance > 0 and random.random() < armor.crit_chance:
             crit_mult = armor.crit_mult
             self.toasts.append(make_toast('暴击！'))
+            self._trigger_shake_flash()  # V1.0.5.12 连击&战斗特效: 任意暴击触发
             if self.audio: self.audio.play_crit()
         lifesteal = armor.lifesteal if armor else 0
         for monster in hit_monsters:
             if crit_mult > 1.0:
-                extra_dmg = round(self.player.total_melee_attack() * (crit_mult - 1))
+                extra_dmg = round(self.player.total_melee_attack() * mult * (crit_mult - 1))
                 monster.take_damage(extra_dmg)
             if lifesteal > 0 and self.player.can_heal():
-                dmg = self.player.total_melee_attack() * crit_mult
+                dmg = self.player.total_melee_attack() * mult * crit_mult
                 heal = round(dmg * lifesteal)
                 if heal > 0:
                     self.player.current_hp = min(self.player.total_max_hp(),
                                                   self.player.current_hp + heal)
             self._play_hit_sound(monster)
             if not monster.is_alive():
-                self._on_monster_killed(monster)
+                result = self._on_monster_killed(monster)
+                if result:
+                    return result
+        return None
+
+    def _do_combo_attack(self, table_key: str) -> str | None:
+        """V1.0.5.12 连击&战斗特效: 近战武器连击系统（剑/斧/矛/匕首 通用）
+        按 COMBO_TABLES[table_key] 段表依次出招:
+        - 每段: 伤害 = 等级基础伤害 × 段倍率; 判定范围/角度按段表
+        - fx "arc": 原地弧形剑气; fx "v": V形剑气沿攻击方向向前飞行（开口朝向玩家）
+        - 段间冷却 interval; 最终段: 屏幕抖动+轻微闪烁, 段数归零,
+          矛/匕首等有 final_cd 的武器进入最终冷却
+        - 间隔 COMBO_RESET_SECONDS(3秒) 不攻击, 段数自动重置
+        """
+        table = COMBO_TABLES[table_key]
+        if self.player.attack_cooldown > 0:
+            return None
+        if self.player.total_melee_attack() <= 0:
+            return None
+
+        stages = table["stages"]
+        n = len(stages)
+        # 当前段数（1..N；0或越界视为第1段）
+        stage = self.player.melee_stage if 1 <= self.player.melee_stage <= n else 1
+        spec = stages[stage - 1]
+
+        # 更新朝向为鼠标方向
+        mx, my = pygame.mouse.get_pos()
+        self.player.facing_angle = math.atan2(my - self.player.y, mx - self.player.x)
+
+        fx_kind, fx_color, fx_span = spec["fx"]
+        if fx_kind == "v":
+            # V形剑气: 沿攻击方向向前飞行, 飞行时长随射程缩放
+            reach_px = spec["range"] * TILE_SIZE
+            self.v_slashes.append({
+                "x": self.player.x, "y": self.player.y,
+                "vx": math.cos(self.player.facing_angle),
+                "vy": math.sin(self.player.facing_angle),
+                "angle": self.player.facing_angle,
+                "t": 0.0,
+                "span_deg": fx_span,
+                "color": fx_color,
+                "dur": max(0.1, reach_px / V_SLASH_SPEED),
+            })
+        else:
+            # 弧形剑气（原地挥砍, 快速淡出）
+            reach = spec["range"] * TILE_SIZE
+            self.slash_effects.append({
+                'x': self.player.x, 'y': self.player.y,
+                'angle': self.player.facing_angle,
+                'radius': max(TILE_SIZE, reach * 0.85),
+                'span_deg': fx_span,
+                'color': fx_color,
+                't': 0.0,
+            })
+
+        hit_monsters = player_melee_attack(
+            self.player, self.monsters,
+            stage_mult=spec["mult"],
+            override_range=spec["range"],
+            fan_angle_deg=spec["angle"],
+            manage_cooldown=False,
+        )
+
+        # 段间冷却 / 最终段冷却; 最终段触发屏抖闪烁并归零段数
+        if stage == n:
+            self._trigger_shake_flash()
+            self.player.melee_stage = 0
+            self.player.attack_cooldown = (table["final_cd"]
+                                           if table["final_cd"] > 0
+                                           else table["interval"])
+        else:
+            self.player.melee_stage = stage + 1
+            self.player.attack_cooldown = table["interval"]
+        self._melee_last_used_time = 0.0
+
+        if not hit_monsters:
+            return None
+        return self._process_melee_hits(hit_monsters, spec["mult"])
 
     def _player_ranged_fire(self) -> None:
         mouse_x, mouse_y = pygame.mouse.get_pos()
@@ -386,9 +625,11 @@ class CombatScene:
         if projs:
             for proj in projs:
                 self.projectiles.append(proj)
-            # 多重箭提示
+            # 多重箭提示（幻术师之弓）: 触发屏幕抖动+轻微闪烁 + 暴击音效
             if len(projs) > 1:
                 self.toasts.append(make_toast('多重箭！'))
+                self._trigger_shake_flash()
+                if self.audio: self.audio.play_crit()
             if self.audio:
                 self.audio.play_projectile('骷髅')
             # 过热提示
@@ -443,10 +684,14 @@ class CombatScene:
             if m.cooldown_remaining > 0:
                 m.cooldown_remaining = max(0, m.cooldown_remaining - dt)
 
-        # 连击冷却归零（V1.0.4 P3）：3秒未使用近战武器时连击计数器归零
+        # 连击冷却归零（V1.0.4 P3）: 3秒未使用近战武器时连击计数器归零
         self._melee_last_used_time += dt
-        if self._melee_last_used_time >= 3.0 and self.player.combo_counter > 0:
-            self.player.combo_counter = 0
+        if self._melee_last_used_time >= COMBO_RESET_SECONDS:
+            if self.player.combo_counter > 0:
+                self.player.combo_counter = 0
+            # V1.0.5.12 连击&战斗特效: 3秒未攻击连击段数自动重置（剑/斧/矛/匕首）
+            if getattr(self.player, 'melee_stage', 0) > 0:
+                self.player.melee_stage = 0
 
         # Buff
         self._update_buffs(dt)
@@ -460,13 +705,33 @@ class CombatScene:
         self.toasts = [t for t in self.toasts if t["timer"] > 0]
 
         # 移动
-        self._handle_movement()
+        self._handle_movement(dt)
 
         # 出生点
         self._check_spawn_zone(dt)
 
-        # 投射物
-        self._update_projectiles()
+        # V1.0.5.12 连击&战斗特效: 长按左键自动连续近战攻击
+        # （远程为右键单发, 无按住连射; 松开/失焦自动停止; 冷却由连击系统节流）
+        if self._attack_held:
+            if not pygame.mouse.get_pressed()[0]:
+                self._attack_held = False
+            elif self.player.melee_weapon:
+                result = self._player_attack()
+                if result:
+                    return result
+
+        # 投射物（V1.0.5.9: 击杀高塔之主即时通关）
+        result = self._update_projectiles()
+        if result:
+            return result
+
+        # V1.0.5.11 近战剑气特效
+        self._update_slash_effects(dt)
+
+        # V1.0.5.12 补丁: V形剑气 / 屏幕抖动 / 轻微闪烁
+        self._update_sword_slashes(dt)
+        self._shake_timer = max(0.0, self._shake_timer - dt)
+        self._flash_timer = max(0.0, self._flash_timer - dt)
 
         # 怪物
         self._update_monsters(dt)
@@ -693,7 +958,7 @@ class CombatScene:
         self._unlock_block_travel = True
         self._portal_hint = None
         if self.audio:
-            self.audio.play_portal_trigger()
+            self.audio.play_unlock()  # V1.0.5.12 补丁: 解锁专属音效
         t = make_toast("特殊宝藏房间已解锁！", color=(255, 215, 0), duration=3.0)
         self.toasts.append(t)
 
@@ -762,6 +1027,9 @@ class CombatScene:
             if not self.monsters:
                 self._spawn_monsters_for_current_room()
 
+        # V1.0.5.10 房间切换后更新 BGM
+        self._update_floor_bgm()
+
     def _is_floor_cleared(self) -> bool:
         """V1.0.5 检查楼层是否已通关（战斗类房间全部清空；副本/宝藏/特殊宝藏不参与判定）"""
         if not self.floor_layout:
@@ -808,7 +1076,8 @@ class CombatScene:
             else:
                 self.in_spawn_zone = True
 
-    def _update_projectiles(self) -> None:
+    def _update_projectiles(self) -> str | None:
+        """更新投射物; 击杀高塔之主时返回 "victory"（V1.0.5.9 即时通关）"""
         to_remove = []
         for i, proj in enumerate(self.projectiles):
             proj['x'] += proj['vx']
@@ -827,14 +1096,31 @@ class CombatScene:
                 dy = self.player.y - proj['y']
                 if math.sqrt(dx*dx+dy*dy) < TILE_SIZE // 2:
                     self.player.take_damage(proj['damage'])
-                    # 燃烧效果（火球）V1.0.5.8: 传递等级参数
+                    # V1.0.5.11 弹射物附加BUFF机制: 火球/冰弹→时长刷新(refresh);
+                    # 冰焰弹→时长叠加(stack); 其余(箭矢等)→取最大(max)
+                    _pt = proj.get('proj_type', 'arrow')
+                    if _pt == 'ice_fireball':
+                        _buff_mode = "stack"
+                    elif _pt in ('fireball', 'ice_bomb'):
+                        _buff_mode = "refresh"
+                    else:
+                        _buff_mode = "max"
                     if proj.get('burn'):
                         burn_level = proj.get('burn_level', 2)
-                        self.player.add_status("burn", proj['burn'], proj.get('burn_dmg', 7), level=burn_level)
-                    # 霜冻效果（流髑箭矢）V1.0.5.8: 传递等级参数
+                        self.player.add_status("burn", proj['burn'], proj.get('burn_dmg', 7),
+                                               level=burn_level, mode=_buff_mode)
                     if proj.get('frost'):
                         frost_level = proj.get('frost_level', 1)
-                        self.player.add_status("frost", proj['frost'], level=frost_level)
+                        self.player.add_status("frost", proj['frost'],
+                                               level=frost_level, mode=_buff_mode)
+                    # V1.0.5.9: 定身（冰弹命中 1.5s 无法移动）
+                    if proj.get('root'):
+                        self.player._root_timer = max(self.player._root_timer, float(proj['root']))
+                    # V1.0.5.9: 首领被动生命窃取（每次造成伤害 60% 概率回复等量HP）
+                    shooter = next((m for m in self.monsters if id(m) == shooter_id), None)
+                    if (shooter is not None and shooter.monster_type == "final_boss"
+                            and random.random() < 0.6):
+                        shooter.hp = min(shooter.max_hp, shooter.hp + max(1, int(proj['damage'])))
                     if self.audio:
                         self.audio.play_player_hit()
                     if not self.player.is_alive():
@@ -854,25 +1140,49 @@ class CombatScene:
                         if projectile_hit_monster(proj, monster, self.player):
                             self._play_hit_sound(monster)
                             weapon = proj.get('weapon')
-                            # 循伤索敌（V1.0.4 P3）：怪物遭受远程攻击后向玩家方向移动
+                            # 循伤索敌（V1.0.5.11）：受远程攻击且玩家不在索敌范围内时,
+                            # 索敌范围+50%（×1.5）, 持续3秒
                             if monster.is_alive():
-                                monster.set_track_attacker(self.player.x, self.player.y, 1.0)
-                            # 精英之弓暴击提示
+                                if not is_in_range(monster.x, monster.y, self.player.x,
+                                                   self.player.y,
+                                                   monster.get_current_detect_range()):
+                                    monster.set_track_attacker(self.player.x, self.player.y, 3.0)
+                            # 精英之弓暴击提示: 触发屏幕抖动+轻微闪烁
                             if proj.get('crit_triggered'):
                                 self.toasts.append(make_toast('暴击！'))
                                 proj['crit_triggered'] = False
+                                self._trigger_shake_flash()
                                 if self.audio: self.audio.play_crit()
                             if not monster.is_alive():
-                                # 杀戮之弩斩杀提示
+                                # 杀戮之弩斩杀提示: 触发屏幕抖动+轻微闪烁 + 专属斩杀音效
                                 if weapon and weapon.instakill:
                                     self.toasts.append(make_toast('斩杀！'))
-                                self._on_monster_killed(monster)
+                                    self._trigger_shake_flash()
+                                    if self.audio: self.audio.play_instakill_easter_egg()
+                                result = self._on_monster_killed(monster)
+                                if result:
+                                    return result
                         hit = True
                         break
             if hit:
                 to_remove.append(i)
         for i in reversed(to_remove):
             self.projectiles.pop(i)
+
+    def _update_slash_effects(self, dt: float) -> None:
+        """V1.0.5.11: 更新近战剑气特效（0.18s 淡出）"""
+        for s in self.slash_effects:
+            s['t'] += dt
+        self.slash_effects = [s for s in self.slash_effects if s['t'] < 0.18]
+
+    def _update_sword_slashes(self, dt: float) -> None:
+        """V1.0.5.12 连击&战斗特效: 更新V形剑气（沿攻击方向向前飞行, 时长按射程缩放）"""
+        for s in self.v_slashes:
+            s['t'] += dt
+            s['x'] += s.get('vx', 0.0) * V_SLASH_SPEED * dt
+            s['y'] += s.get('vy', 0.0) * V_SLASH_SPEED * dt
+        self.v_slashes = [s for s in self.v_slashes
+                          if s['t'] < s.get('dur', V_SLASH_DURATION)]
 
     def _update_monsters(self, dt: float) -> None:
         for monster in self.monsters:
@@ -1184,10 +1494,14 @@ class CombatScene:
     # 移动
     # ================================================================
 
-    def _handle_movement(self) -> None:
+    def _handle_movement(self, dt: float) -> None:
+        # V1.0.5.9: 定身（冰弹命中 1.5s 无法移动）
+        if self.player._root_timer > 0:
+            self.player._root_timer = round(self.player._root_timer - dt, 2)
+            return
         keys = pygame.key.get_pressed()
         dx, dy = 0.0, 0.0
-        spd = self.player.total_speed()
+        spd = self.player.total_speed() * GLOBAL_SPEED_MULT
         if keys[pygame.K_w] or keys[pygame.K_UP]:
             dy -= spd
         if keys[pygame.K_s] or keys[pygame.K_DOWN]:
@@ -1222,7 +1536,8 @@ class CombatScene:
     # 掉落 & 击杀
     # ================================================================
 
-    def _on_monster_killed(self, monster: Monster) -> None:
+    def _on_monster_killed(self, monster: Monster) -> str | None:
+        """处理怪物死亡; 击杀高塔之主立即通关返回 "victory"（V1.0.5.9）"""
         self.monsters_killed += 1
         self._play_death_sound(monster)
 
@@ -1243,6 +1558,13 @@ class CombatScene:
 
         self._roll_drops(monster)
 
+        # V1.0.5.9 击杀高塔之主立即通关
+        if self.floor_type == 'final_boss' and monster.monster_type == 'final_boss':
+            self._floor_clearing = True
+            if self.audio:
+                self.audio.play_victory()
+            return 'victory'
+
         # V1.0.5 检查当前房间怪物是否全部死亡
         if self.current_room and self.floor_layout:
             alive = [m for m in self.monsters if m.is_alive()]
@@ -1251,10 +1573,13 @@ class CombatScene:
                 # 楼层通关提示：任意房间完成战斗时检查全楼层
                 if not self._floor_clear_toast_shown and self._is_floor_cleared():
                     self._floor_clear_toast_shown = True
-                    if self.floor_type not in ("boss", "final_boss"):
+                    if self.floor_type != 'final_boss':
                         self.toasts.append(make_toast(
                             "当前楼层已完成，传送门已开启",
                             color=(255, 215, 0), duration=3.0))
+                        if self.audio:
+                            self.audio.play_portal_appear()
+        return None
 
     def _handle_slime_split(self, monster: Monster) -> None:
         """史莱姆死亡分裂"""
@@ -1367,6 +1692,71 @@ class CombatScene:
             room_idx = self.current_room.room_idx if self.current_room else 0
             self._add_drop(room_idx, (item, monster.x, monster.y - 10))
 
+    def _weighted_random(self, weights: dict):
+        """按权重随机选择一个键"""
+        roll = random.random()
+        cumulative = 0
+        for value, weight in weights.items():
+            cumulative += weight
+            if roll < cumulative:
+                return value
+        return list(weights.keys())[-1]
+
+    def _spawn_treasure_ground_items(self, room: Room) -> None:
+        """V1.0.5.12 补丁: 宝藏室/特殊宝藏房间地面刷新消耗品+装备"""
+        room_idx = room.room_idx
+        # 防重复生成
+        if self.drops.get(room_idx):
+            return
+        is_special = room.room_type == RoomType.SPECIAL_TREASURE
+        if is_special:
+            potion_limit = SPECIAL_TREASURE_ROOM_MIN_POTIONS
+        else:
+            potion_limit = TREASURE_ROOM_MAX_POTIONS
+
+        # 消耗品：前 potion_limit 个位置随机药水，其余面包
+        for i, (col, row) in enumerate(room.consumable_positions):
+            px = col * TILE_SIZE + TILE_SIZE // 2
+            py = row * TILE_SIZE + TILE_SIZE // 2
+            if i < potion_limit:
+                item = random.choice(POTION_POOL)
+            else:
+                item = BREAD
+            self._add_drop(room_idx, (item, px, py))
+
+        # 装备：宝藏室 T1~T5 普通；特殊宝藏室 T5 及以上（独特装备）
+        for col, row in room.equip_positions:
+            if is_special:
+                item = self._roll_treasure_equip(5, allow_unique=True)
+            else:
+                tier = random.randint(1, TREASURE_ROOM_EQUIP_MAX_TIER)
+                item = self._roll_treasure_equip(tier, allow_unique=False)
+            if item:
+                px = col * TILE_SIZE + TILE_SIZE // 2
+                py = row * TILE_SIZE + TILE_SIZE // 2
+                self._add_drop(room_idx, (item, px, py))
+
+    def _roll_treasure_equip(self, tier: int, allow_unique: bool = False):
+        """V1.0.5.12 补丁: 宝藏室地面装备随机生成"""
+        equip_type = random.choice(['melee_weapon', 'ranged_weapon', 'armor'])
+        if allow_unique and random.random() < 0.5:
+            if equip_type == 'melee_weapon':
+                item = random.choice([WEAPON_BY_NAME.get('三叉戟'), WEAPON_BY_NAME.get('机械链锯')])
+            elif equip_type == 'ranged_weapon':
+                item = WEAPON_BY_NAME.get(random.choice(['精英之弓', '杀戮之弩', '机械弩', '幻术师之弓']))
+            else:
+                from data.armor import SPECIAL_ARMORS
+                item = random.choice(SPECIAL_ARMORS)
+        else:
+            if equip_type == 'melee_weapon':
+                item = WEAPON_BY_TYPE_TIER.get((random.choice(['sword', 'axe', 'spear', 'dagger']), tier))
+            elif equip_type == 'ranged_weapon':
+                item = WEAPON_BY_TYPE_TIER.get((random.choice(['bow', 'crossbow']), tier))
+            else:
+                pool = ARMOR_BY_TIER.get(tier, [])
+                item = random.choice(pool) if pool else None
+        return item
+
     def _quick_use(self, key: int) -> None:
         """快捷键快速使用消耗品"""
         key_map = {pygame.K_1: ("heal_50", "面包"),
@@ -1409,6 +1799,11 @@ class CombatScene:
         item = room_drops[closest_idx][0]
         if add_item(self.backpack, item):
             room_drops.pop(closest_idx)
+            # V1.0.5.12 补丁: 拾取提示「您捡起了XXX」（物品名称按颜色）
+            name_color = self._pickup_color(item)
+            t = make_toast('', duration=2.0,
+                           segments=[('您捡起了', (80, 80, 80)), (item.name, name_color)])
+            self.toasts.append(t)
             # V1.0.5.6 钥匙拾取提示
             if isinstance(item, KeyItem):
                 t = make_toast("获得 藏宝室钥匙！", color=(255, 215, 0), duration=3.0)
@@ -1419,6 +1814,36 @@ class CombatScene:
         if room_idx not in self.drops:
             self.drops[room_idx] = []
         self.drops[room_idx].append(drop)
+
+    def _pickup_color(self, item) -> tuple:
+        """V1.0.5.12 补丁: 拾取提示物品名称颜色"""
+        if isinstance(item, Consumable):
+            if item.name == '面包':
+                return (139, 90, 43)
+            if item.name == '力量药水':
+                return (255, 0, 255)
+            if item.name == '迅捷药水':
+                return (135, 206, 250)
+            if item.name == '生命药水':
+                return (255, 60, 60)
+            if item.name == '隐身药水':
+                return (160, 160, 220)
+            return (220, 220, 220)
+        if isinstance(item, Weapon):
+            if item.name in UNIQUE_WEAPON_NAMES:
+                return (255, 140, 0)
+            if item.tier >= 5:
+                return (144, 238, 144)
+            return (255, 255, 255)
+        if isinstance(item, Armor):
+            if item.armor_type == 'special':
+                return (255, 140, 0)
+            if item.tier >= 5:
+                return (144, 238, 144)
+            return (255, 255, 255)
+        if isinstance(item, KeyItem):
+            return (255, 215, 0)
+        return (220, 220, 220)
 
     # ================================================================
     # 楼层通关
@@ -1446,39 +1871,61 @@ class CombatScene:
     # ================================================================
 
     def draw(self, screen: pygame.Surface) -> None:
-        screen.fill(COLOR_BG)
-        draw_map(screen, self.grid, self.spawn_pos, self.portal_pos,
+        # V1.0.5.12 补丁: 屏幕抖动 + 轻微闪烁
+        if self._shake_timer > 0 and self._shake_power > 0:
+            render = pygame.Surface(screen.get_size())
+            self._draw_world(render)
+            screen.fill(COLOR_BG)
+            ox = int(random.uniform(-self._shake_power, self._shake_power))
+            oy = int(random.uniform(-self._shake_power, self._shake_power))
+            screen.blit(render, (ox, oy))
+        else:
+            self._draw_world(screen)
+
+        if self._flash_timer > 0:
+            flash = pygame.Surface(screen.get_size(), pygame.SRCALPHA)
+            alpha = int(160 * min(1.0, self._flash_timer / FLASH_DURATION))
+            if alpha > 0:
+                flash.fill((255, 255, 255, alpha))
+                screen.blit(flash, (0, 0))
+
+    def _draw_world(self, render: pygame.Surface) -> None:
+        render.fill(COLOR_BG)
+        draw_map(render, self.grid, self.spawn_pos, self.portal_pos,
                  self.portal_active, self.in_spawn_zone,
                  get_theme(self.current_floor),
                  self.floor_layout, self.current_room)
-        draw_drops(screen, self.drops.get(self.current_room.room_idx, []) if self.current_room else [])
+        draw_drops(render, self.drops.get(self.current_room.room_idx, []) if self.current_room else [])
         for monster in self.monsters:
             if monster.is_alive():
-                draw_monster(screen, monster)
-        self._draw_projectiles(screen)
-        draw_player(screen, self.player)
-        draw_hud(screen, self.player, self.current_floor,
+                draw_monster(render, monster)
+        self._draw_projectiles(render)
+        # V1.0.5.11 近战弧形剑气 / V1.0.5.12 V形剑气
+        draw_slash_effects(render, self.slash_effects)
+        draw_v_slashes(render, self.v_slashes)
+        draw_player(render, self.player)
+        draw_hud(render, self.player, self.current_floor,
                  self.revive_system.revives_remaining, get_bold_hud_font())
         # 倒计时 toast
         offset = 0
         if self._spawn_toast:
-            draw_toast(screen, self._spawn_toast, get_bold_hud_font(), offset=0)
+            draw_toast(render, self._spawn_toast, get_bold_hud_font(), offset=0)
             offset = 1
         # 传送门提示（紫色或绿色）
         if self._portal_hint:
-            draw_toast(screen, self._portal_hint, get_bold_hud_font(), offset=offset)
+            draw_toast(render, self._portal_hint, get_bold_hud_font(), offset=offset)
             offset += 1
         # 传送门倒计时（绿色）
         if self._portal_countdown:
-            draw_toast(screen, self._portal_countdown, get_bold_hud_font(), offset=offset, color=(100, 220, 100))
+            draw_toast(render, self._portal_countdown, get_bold_hud_font(), offset=offset, color=(100, 220, 100))
             offset += 1
         # 传送门背包警告（黄色）
         if self._portal_toast:
-            draw_toast(screen, self._portal_toast, get_bold_hud_font(), offset=offset, color=(255, 220, 60))
+            draw_toast(render, self._portal_toast, get_bold_hud_font(), offset=offset, color=(255, 220, 60))
             offset += 1
         # 技能 toast
         for i, t in enumerate(self.toasts):
-            draw_toast(screen, t, get_bold_hud_font(), offset=offset + i)
+            draw_toast(render, t, get_bold_hud_font(), offset=offset + i)
 
         # 楼层重置倒计时提示（V1.0.4 P3）
         if self._reset_countdown > 0:
@@ -1490,12 +1937,12 @@ class CombatScene:
             # 半透明背景
             bg_surface = pygame.Surface((text_rect.width + 40, text_rect.height + 20), pygame.SRCALPHA)
             bg_surface.fill((0, 0, 0, 180))
-            screen.blit(bg_surface, (text_rect.x - 20, text_rect.y - 10))
-            screen.blit(text_surface, text_rect)
+            render.blit(bg_surface, (text_rect.x - 20, text_rect.y - 10))
+            render.blit(text_surface, text_rect)
 
         # 暂停菜单（V1.0.4 P3）
         if self._paused:
-            self._draw_pause_menu(screen)
+            self._draw_pause_menu(render)
 
     def _draw_pause_menu(self, screen: pygame.Surface) -> None:
         """绘制暂停菜单"""

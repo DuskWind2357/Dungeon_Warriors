@@ -5,7 +5,7 @@ HP成长、Buff计时器、伤害减免、击退定身
 
 from dataclasses import dataclass, field
 from config import (
-    PLAYER_BASE_HP, PLAYER_HP_PER_FLOOR, PLAYER_HP_PER_BOSS_KILL,
+    PLAYER_BASE_HP, DIFFICULTY_MODIFIERS,
     PLAYER_BASE_SPEED,
     STRENGTH_POTION_DURATION, INVIS_POTION_DURATION,
     SWIFT_POTION_DURATION, BREAD_HEAL_DURATION, BREAD_HEAL_PER_SEC,
@@ -28,9 +28,10 @@ class Player:
     # 基础属性
     base_hp: int = PLAYER_BASE_HP
     current_hp: int = PLAYER_BASE_HP
-    current_floor: int = 1     # 当前楼层（用于HP上限计算）
-    boss_kills: int = 0        # 头目击杀数 (+10HP each)
-    elite_kills: int = 0       # 精英击杀数 (+2HP each)
+    current_floor: int = 1     # 当前楼层（用于HP/攻击成长计算）
+    boss_kills: int = 0        # 头目击杀数（生命+10/15/20、攻击+9%/12%/15% 按难度）
+    elite_kills: int = 0       # 精英击杀数（生命+2/3/5、攻击+1% 按难度）
+    difficulty: str = "easy"   # V1.0.5.10: 成长参数按难度取值
 
     # 装备（双武器槽：近战 + 远程）
     melee_weapon: Weapon | None = None
@@ -42,11 +43,13 @@ class Player:
     _consumable_cooldowns: dict[str, float] = field(default_factory=dict)
     # 状态效果（凋零、燃烧等）
     status_effects: dict[str, float] = field(default_factory=dict)
+    status_levels: dict[str, int] = field(default_factory=dict)  # V1.0.5.9: 状态显式等级
     _burn_dmg: float = 7.0  # 当前燃烧每秒伤害
     _burn_level: int = 2    # 当前燃烧等级（1/2/3）
 
     # 近战连击系统
     combo_counter: int = 0
+    melee_stage: int = 0  # V1.0.5.12 补丁: 剑三段式当前段数（1/2/3；0=未开始/已重置）
 
     # 运行时状态
     x: float = 0.0
@@ -55,27 +58,48 @@ class Player:
     attack_cooldown: float = 0.0   # 近战冷却（秒）
     ranged_cooldown: float = 0.0   # 远程冷却（秒）
     speed: int = PLAYER_BASE_SPEED
+    _root_timer: float = 0.0       # V1.0.5.9: 定身剩余秒数（被冰弹命中等）
 
     # ================================================================
     # 属性计算
     # ================================================================
 
+    def _growth(self) -> dict:
+        """V1.0.5.10: 当前难度的玩家成长参数（防御式回退默认难度）"""
+        return DIFFICULTY_MODIFIERS.get(self.difficulty, DIFFICULTY_MODIFIERS["easy"])
+
     def total_max_hp(self, floor: int | None = None) -> int:
-        """HP（仅此处取整）"""
+        """HP（仅此处取整）。V1.0.5.10 计算规则：
+        玩家HP = (基础生命值 + 楼层生命加成 + 精英/头目击杀生命加成) × (1+护甲倍率)
+        生命加成按难度：每层+5/8/10，每精英+2/3/5，每头目+10/15/20
+        """
         if floor is None:
             floor = self.current_floor
-        hp = float(self.base_hp + (floor-1)*5 + self.boss_kills*10 + self.elite_kills*2)
+        g = self._growth()
+        hp = float(self.base_hp
+                   + (floor - 1) * g["player_hp_per_floor"]
+                   + self.elite_kills * g["player_hp_per_elite"]
+                   + self.boss_kills * g["player_hp_per_boss"])
         if self.armor and self.armor.hp_bonus_pct > 0:
             hp *= (1 + self.armor.hp_bonus_pct)
         return round(hp)
 
-    def base_attack_bonus(self) -> int:
-        """基础攻击加成：每5精英+1 / 每1头目+1"""
-        return self.elite_kills // 5 + self.boss_kills
+    def base_attack_mult(self) -> float:
+        """基础攻击倍率（V1.0.5.10）：
+        = 1 + 每层攻击加成×(floor-1) + 精英击杀×1% + 头目击杀×9%/12%/15%（按难度）
+        """
+        g = self._growth()
+        return (1.0
+                + (self.current_floor - 1) * g["player_atk_per_floor"]
+                + self.elite_kills * g["player_atk_per_elite"]
+                + self.boss_kills * g["player_atk_per_boss"])
 
     def total_melee_attack(self) -> float:
-        """近战攻击力（浮点，仅HP变更时取整）"""
-        atk = float((self.melee_weapon.attack_bonus if self.melee_weapon else 0) + self.base_attack_bonus())
+        """近战攻击力（浮点）。V1.0.5.10 计算规则：
+        ATK = (武器伤害 × 基础攻击倍率) × 护甲加成(如有) × 力量(如有)
+        （暴击为命中时独立判定，见 systems/combat.py）
+        """
+        atk = float(self.melee_weapon.attack_bonus if self.melee_weapon else 0) * self.base_attack_mult()
         if self.armor and self.armor.melee_dmg_pct > 0:
             atk *= (1 + self.armor.melee_dmg_pct)
         if 'strength' in self.buffs and self.buffs['strength'] > 0:
@@ -83,8 +107,8 @@ class Player:
         return atk
 
     def total_ranged_attack(self) -> float:
-        """远程攻击力（浮点）"""
-        atk = float((self.ranged_weapon.attack_bonus if self.ranged_weapon else 0) + self.base_attack_bonus())
+        """远程攻击力（浮点）。计算规则同近战（护甲加成取远程加成）"""
+        atk = float(self.ranged_weapon.attack_bonus if self.ranged_weapon else 0) * self.base_attack_mult()
         if self.armor and self.armor.ranged_dmg_pct > 0:
             atk *= (1 + self.armor.ranged_dmg_pct)
         if 'strength' in self.buffs and self.buffs['strength'] > 0:
@@ -120,18 +144,10 @@ class Player:
     # ================================================================
 
     def _get_status_level(self, effect: str) -> int:
-        """获取状态效果等级（通过持续时间推断）"""
-        duration = self.status_effects.get(effect, 0)
+        """获取状态效果等级（V1.0.5.9: 显式等级存储，缺省按等级1）"""
         if effect == "burn":
-            # 燃烧等级：通过 _burn_level 字段直接获取
             return self._burn_level
-        elif effect == "frost":
-            # 霜冻等级：通过持续时间推断
-            if duration >= 5.0:
-                return 2  # II级霜冻（5秒）
-            else:
-                return 1  # I级霜冻（4秒以下）
-        return 1
+        return self.status_levels.get(effect, 1)
 
     # ================================================================
     # 战斗方法
@@ -233,23 +249,29 @@ class Player:
         """是否有活跃的状态效果"""
         return effect in self.status_effects and self.status_effects[effect] > 0
 
-    def add_status(self, effect: str, duration: float, dmg: float = 0, level: int = 0) -> None:
-        """添加状态效果。V1.0.5.8: 支持等级系统
-        - 燃烧：叠加时+40%新时长，记录等级
-        - 霜冻：取最大时长
-        - 凋零：取最大时长
+    def add_status(self, effect: str, duration: float, dmg: float = 0,
+                   level: int = 0, mode: str = "max") -> None:
+        """添加状态效果。V1.0.5.9: 显式等级存储（status_levels）
+        V1.0.5.11 弹射物附加BUFF机制（mode 参数）:
+        - "max"（默认）: 取最大时长（近战/箭矢等保持原逻辑；燃烧旧叠法+40%仅此模式保留）
+        - "refresh": 刷新为新时长（多枚火球/冰弹依次命中，BUFF时长刷新而不叠加）
+        - "stack":   叠加时长（多枚冰焰弹命中，BUFF时长叠加）
+        等级与燃烧伤害始终取最高。
         """
         cur = self.status_effects.get(effect, 0)
-        if effect == "burn" and cur > 0:
-            # 多枚火球叠加：已有燃烧 + 新时长×40%
+        if mode == "refresh":
+            self.status_effects[effect] = duration
+        elif mode == "stack":
+            self.status_effects[effect] = cur + duration
+        elif effect == "burn" and cur > 0:
+            # 旧叠法（仅默认模式）：已有燃烧 + 新时长×40%
             self.status_effects[effect] = cur + duration * 0.4
-            # 燃烧等级取最高
-            if level > 0:
-                self._burn_level = max(self._burn_level, level)
         else:
             self.status_effects[effect] = max(cur, duration)
-            if level > 0:
-                self._burn_level = level
+        if level > 0:
+            self.status_levels[effect] = max(self.status_levels.get(effect, 0), level)
+        if effect == "burn":
+            self._burn_level = self.status_levels.get("burn", self._burn_level)
         if effect == "burn" and dmg > 0:
             self._burn_dmg = max(self._burn_dmg, dmg)
 

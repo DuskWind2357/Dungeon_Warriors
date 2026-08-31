@@ -1,5 +1,5 @@
 """
-Dungeon Warriors V1.0.5.8 — 游戏常量配置（平衡性重做）
+Dungeon Warriors V1.0.5.12 — 游戏常量配置（平衡性重做）
 基于 frame/V 1.0.5/平衡性重做/ 设计文档
 """
 
@@ -21,11 +21,16 @@ MAP_ROWS = 15
 # 玩家 (frame.txt + improvement.txt)
 # ============================================================
 PLAYER_BASE_HP = 100
-PLAYER_HP_PER_FLOOR = 5       # 每层 +5 生命上限
-PLAYER_HP_PER_BOSS_KILL = 5   # 每击杀头目 +5 生命上限
+# V1.0.5.10: 玩家成长数值并入 DIFFICULTY_MODIFIERS（player_* 字段，按难度取值）
+#   玩家HP  = (基础生命值 + 楼层/击杀生命加成) × (1+护甲倍率)
+#   玩家ATK = (武器伤害 × 基础攻击倍率) × 护甲加成(如有) × 暴击(如有) × 力量(如有)
 PLAYER_BASE_SPEED = 4         # px/frame
 PLAYER_DEFAULT_WEAPON = "铜剑"  # 初始武器
 PLAYER_DEFAULT_ARMOR = "战袍 (T1)"   # 初始护甲
+GLOBAL_SPEED_MULT = 0.75      # 全局移速倍率（所有实体统一缩放）
+ENEMY_PROJECTILE_SPEED_MULT = 0.5  # V1.0.5.10: 敌方弹射物全局手感系数
+                                    # 实际位移/距离记账 = 弹种速度 × 此系数; 射程字段仍为文档像素
+                                    # （玩家箭矢不受影响）
 
 # ============================================================
 # 怪物 (V1.0.5.8 平衡性重做)
@@ -46,20 +51,21 @@ MONSTER_HEAD_BOSS_ATK = 12
 MONSTER_HEAD_BOSS_RANGE = 1.2
 MONSTER_HEAD_BOSS_CD = 1.2
 
-MONSTER_FINAL_BOSS_HP = 5000
+MONSTER_FINAL_BOSS_HP = 6000   # V1.0.5.10: 高塔之主基础生命 5000→6000
 MONSTER_FINAL_BOSS_ATK_P1 = 12
 MONSTER_FINAL_BOSS_ATK_P2 = 15
 MONSTER_FINAL_BOSS_CD_P1 = 1.2
 MONSTER_FINAL_BOSS_CD_P2 = 1.0
 MONSTER_FINAL_BOSS_RANGE = 3.0
 MONSTER_FINAL_BOSS_P2_DR = 0.40    # 二阶段 40% 远程伤害减免
-MONSTER_FINAL_BOSS_SUMMON_INTERVAL = 10.0  # 每10秒召唤
-MONSTER_FINAL_BOSS_SUMMON_CHANCE = 0.50
+MONSTER_FINAL_BOSS_SUMMON_INTERVAL = 10.0  # [已废弃 V1.0.5.9] 号令改为技能冷却体系
+MONSTER_FINAL_BOSS_SUMMON_CHANCE = 0.50    # [已废弃 V1.0.5.9] 号令改为概率表
 MONSTER_FINAL_BOSS_RANGED_IMMUNE_HP = 0.25  # HP<25% 远程免疫
 
-MONSTER_SPEED = 2
+MONSTER_SPEED = 0.8
 MONSTER_DETECT_RANGE = 480     # px
-MONSTER_SCALE_PER_FLOOR = 1.07  # 保留旧缩放（兼容 floor_manager）
+MONSTER_SPEED_SCALE = 0.8      # V1.0.5.10: 文档速度 -> px/帧 统一换算系数（保留浮点）
+MONSTER_SCALE_PER_FLOOR = 1.07  # [已废弃] 保留旧缩放（兼容 floor_manager）
 
 # 每5层怪物成长
 MONSTER_PER_5_FLOORS_HP = 10
@@ -71,6 +77,9 @@ MONSTER_PER_5_FLOORS_ATK = 2
 TOTAL_FLOORS = 30
 BOSS_FLOORS = [10, 20]
 FINAL_BOSS_FLOOR = 30
+
+# HUD 首行白色字体的楼层段（雪地/地狱层），由 renderer 引用（V1.0.5.9 重新应用）
+HUD_WHITE_FLOOR_RANGES: tuple[tuple[int, int], ...] = ((11, 19), (21, 29))
 
 BATTLE_NORMAL_MIN = 4
 BATTLE_NORMAL_MAX = 8
@@ -125,59 +134,92 @@ AUTO_DESTROY_LOW_LEVEL_GEAR = False  # 低级装备自动销毁开关（默认�
 MUSIC_ENABLED = True                 # 音乐控制开关（默认开启，关闭时停止游戏内所有音乐）
 
 # ============================================================
-# 难度系统（V1.0.5.8 平衡性重做）
+# 难度系统（V1.0.5.8 平衡性重做 / V1.0.5.10 按最新文档更新）
 # ============================================================
-# 基础难度：刷怪倍率1.0，怪物属性每层线性缩放
-# 冒险难度：刷怪倍率1.25，每房间额外刷新50%精英
+# 怪物线性缩放（V1.0.5.10）: 生物HP/ATK = 初始 × (1 + 难度倍率 × (floor-1))
+#   hp_scale_per_floor / atk_scale_per_floor 即"难度倍率"（12%/15%/18%）
+#   攻击冷却/技能冷却不再随楼层缩放（V1.0.5.10 移除）
+# 头目BOSS（V1.0.5.10）: ATK/HP = 初始 × 难度BOSS倍率 × (1 + (Floor-1) × 难度倍率 / 3)
+# 玩家成长（V1.0.5.10）:
+#   攻击加成 = 每层+4%/5%/6%，每精英击杀+1%，每头目击杀+9%/12%/15%
+#   生命加成 = 每层+5/8/10，每精英击杀+2/3/5，每头目击杀+10/15/20
+# 基础难度：刷怪倍率1.0
+# 冒险难度：刷怪倍率1.2，每房间额外刷新50%精英
 # 末日难度：刷怪倍率1.5，每房间额外刷新100%精英
 DIFFICULTY_MODIFIERS = {
     "easy": {
         "label": "默认",
         "spawn_mult": 1.0,
-        "hp_scale_per_floor": 1.18,      # 每层+18%血量
-        "atk_scale_per_floor": 1.18,     # 每层+18%攻击力
-        "cd_scale_per_floor": 0.99,      # 每层-1%攻击冷却
-        "skill_cd_scale_per_floor": 0.99, # 每层-1%技能冷却
-        "elite_extra_mult": 0.0,         # 无额外精英
-        "boss_cd_mult": 1.0,             # BOSS攻击冷却倍率
-        "boss_skill_cd_mult": 1.0,       # BOSS技能冷却倍率
-        "boss_atk_mult": 1.0,            # BOSS攻击力倍率
-        "boss_hp_mult": 1.0,             # BOSS血量倍率
-        "treasure_room_chance_battle": 0.10,  # 战斗房间宝藏室概率
-        "treasure_room_chance_dungeon": 0.60, # 副本房间宝藏室概率
+        "hp_scale_per_floor": 0.12,
+        "atk_scale_per_floor": 0.12,
+        "elite_extra_mult": 0.0,
+        "boss_cd_mult": 1.0,
+        "boss_skill_cd_mult": 1.0,
+        "boss_atk_mult": 1.0,
+        "boss_hp_mult": 1.0,
+        "treasure_room_chance_battle": 0.10,
+        "treasure_room_chance_dungeon": 0.60,
+        "player_atk_per_floor": 0.04,
+        "player_atk_per_elite": 0.01,
+        "player_atk_per_boss": 0.09,
+        "player_hp_per_floor": 5,
+        "player_hp_per_elite": 2,
+        "player_hp_per_boss": 10,
+        "upgrade_special_chance": 0.45,
     },
     "normal": {
         "label": "冒险",
-        "spawn_mult": 1.25,
-        "hp_scale_per_floor": 1.18,
-        "atk_scale_per_floor": 1.18,
-        "cd_scale_per_floor": 0.985,     # 每层-1.5%攻击冷却
-        "skill_cd_scale_per_floor": 0.985,
-        "elite_extra_mult": 0.50,        # 额外50%精英
-        "boss_cd_mult": 0.9,             # BOSS攻击冷却×0.9
-        "boss_skill_cd_mult": 0.8,       # BOSS技能冷却×0.8
-        "boss_atk_mult": 1.1,            # BOSS攻击力×1.1
-        "boss_hp_mult": 1.2,             # BOSS血量×1.2
+        "spawn_mult": 1.2,
+        "hp_scale_per_floor": 0.15,
+        "atk_scale_per_floor": 0.15,
+        "elite_extra_mult": 0.50,
+        "boss_cd_mult": 0.9,
+        "boss_skill_cd_mult": 0.9,
+        "boss_atk_mult": 1.1,
+        "boss_hp_mult": 1.2,
         "treasure_room_chance_battle": 0.20,
         "treasure_room_chance_dungeon": 0.80,
+        "player_atk_per_floor": 0.05,
+        "player_atk_per_elite": 0.01,
+        "player_atk_per_boss": 0.12,
+        "player_hp_per_floor": 8,
+        "player_hp_per_elite": 3,
+        "player_hp_per_boss": 15,
+        "upgrade_special_chance": 0.75,
     },
     "hard": {
         "label": "末日",
         "spawn_mult": 1.5,
-        "hp_scale_per_floor": 1.26,      # 每层+26%血量
-        "atk_scale_per_floor": 1.26,     # 每层+26%攻击力
-        "cd_scale_per_floor": 0.98,      # 每层-2%攻击冷却
-        "skill_cd_scale_per_floor": 0.98,
-        "elite_extra_mult": 1.00,        # 额外100%精英
-        "boss_cd_mult": 0.8,             # BOSS攻击冷却×0.8
-        "boss_skill_cd_mult": 0.6,       # BOSS技能冷却×0.6
-        "boss_atk_mult": 1.2,            # BOSS攻击力×1.2
-        "boss_hp_mult": 1.5,             # BOSS血量×1.5
+        "hp_scale_per_floor": 0.18,
+        "atk_scale_per_floor": 0.18,
+        "elite_extra_mult": 1.00,
+        "boss_cd_mult": 0.8,
+        "boss_skill_cd_mult": 0.8,
+        "boss_atk_mult": 1.2,
+        "boss_hp_mult": 1.5,
         "treasure_room_chance_battle": 0.40,
         "treasure_room_chance_dungeon": 1.00,
+        "player_atk_per_floor": 0.06,
+        "player_atk_per_elite": 0.01,
+        "player_atk_per_boss": 0.15,
+        "player_hp_per_floor": 10,
+        "player_hp_per_elite": 5,
+        "player_hp_per_boss": 20,
+        "upgrade_special_chance": 1.00,
     },
 }
 DEFAULT_DIFFICULTY = "easy"
+
+# 神秘奖励概率表（V1.0.5.10，按难度，单位：%）
+# revive=复活+1（满3条仅红字提示不增加，所需空位0）
+# double=药水×2（所需空位2，四种药水各占 double 权重）
+# single=单瓶药水（所需空位1，四种药水各占 single 权重）
+# 各难度合计: revive + 4×double + 4×single = 100
+MYSTERY_REWARD_WEIGHTS: dict[str, dict[str, float]] = {
+    "easy":   {"revive": 20.0, "double": 5.0,  "single": 15.0},
+    "normal": {"revive": 40.0, "double": 10.0, "single": 5.0},
+    "hard":   {"revive": 60.0, "double": 10.0, "single": 0.0},
+}
 
 # 延迟刷新
 SPAWN_DELAY_SEC = 3.0
@@ -195,6 +237,36 @@ DROP_ELITE_BREAD = 0.30  # V1.0.3: 30%
 DROP_BOSS_EQUIP = 1.0
 DROP_BOSS_BREAD = 0.80  # V1.0.3: 80%
 DROP_BOSS_POTION = 0.80  # V1.0.3: 80%
+
+# V1.0.5.12 宝箱掉落概率表
+CHEST_DROP_EQUIP_WEIGHTS = {
+    "unique": 0.05,  # 5% 独特装备
+    "T5": 0.10,      # 10% T5
+    "T4": 0.15,      # 15% T4
+    "T3": 0.20,      # 20% T3
+    "T2": 0.25,      # 25% T2
+    "T1": 0.25,      # 25% T1
+}
+CHEST_DROP_POTION_WEIGHTS = {0: 0.50, 1: 0.30, 2: 0.20}  # 药水数量概率
+CHEST_DROP_BREAD_WEIGHTS = {0: 0.50, 1: 0.30, 2: 0.20}   # 面包数量概率
+
+# V1.0.5.12 试炼刷怪笼掉落（必掉特殊装备+2瓶药水）
+TRIAL_SPAWNER_DROP特殊_EQUIP = True
+TRIAL_SPAWNER_DROP_POTIONS = 2
+
+# V1.0.5.12 宝藏室生成规则
+TREASURE_ROOM_CHESTS = (2, 3)           # 宝箱数量范围
+TREASURE_ROOM_CONSUMABLES = (3, 4)     # 消耗品数量范围
+TREASURE_ROOM_MAX_POTIONS = 2          # 至多药水数
+TREASURE_ROOM_EQUIP_COUNT = (1, 2)     # 装备数量范围
+TREASURE_ROOM_EQUIP_MAX_TIER = 5       # T5及以下
+
+# V1.0.5.12 特殊宝藏房间生成规则
+SPECIAL_TREASURE_ROOM_CHESTS = (4, 5)
+SPECIAL_TREASURE_ROOM_CONSUMABLES = (7, 8)
+SPECIAL_TREASURE_ROOM_MIN_POTIONS = 4
+SPECIAL_TREASURE_ROOM_EQUIP_COUNT = (2, 3)
+SPECIAL_TREASURE_ROOM_EQUIP_MIN_TIER = 5  # T5及以上
 
 # ============================================================
 # 消耗品 Buff 持续时间（秒）

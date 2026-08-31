@@ -1,0 +1,37 @@
+BUG：
+高塔之主无限次发动起死回生技能（仅能发动一次）
+
+新增规则：
+高塔之主发动首领号令技能时，全场精英数量须小于4，普通怪物数量须小于6，任意条件不满足则技能发动失败，注意：该技能发动失败同样进入冷却；
+
+弹射物附加BUFF机制说明：
+依次被多枚火球/冰弹命中，BUFF时长刷新而不叠加；
+被多枚冰焰弹命中，BUFF时长叠加；
+
+音画修正：
+高塔之主第一阶段图标更换："C:\Users\Dusk_Wind\Desktop\Project\Dungeon Warriors\icon\WraithFace.webp"；
+掠夺者突袭队长图标更换："C:\Users\Dusk_Wind\Desktop\Project\Dungeon Warriors\icon\120px-TowerGuardFace.webp"；
+高塔之主发射冰焰弹音效："C:\Users\Dusk_Wind\Desktop\Project\Dungeon Warriors\sounds\高塔之主\发射冰焰弹.ogg"；
+关于玩家通关楼层的音效播放：音效应当在楼层通关金色文字提示出现时播放；
+
+
+音乐添加及播放规则说明：
+雪地主题：11-19 层——循环随机播放"C:\Users\Dusk_Wind\Desktop\Project\Dungeon Warriors\music\雪地"中一个；
+地狱主题：21-29 层——循环随机播放"C:\Users\Dusk_Wind\Desktop\Project\Dungeon Warriors\music\地狱"中一个；
+BOSS楼层：10/20/30层（不包含BOSS房间）——循环播放"C:\Users\Dusk_Wind\Desktop\Project\Dungeon Warriors\music\BOSS.mp3"；
+头目BOSS房间——循环播放"C:\Users\Dusk_Wind\Desktop\Project\Dungeon Warriors\music\头目.mp3"；
+首领BOSS房间——循环播放"C:\Users\Dusk_Wind\Desktop\Project\Dungeon Warriors\music\高塔之主.mp3"；
+奖励选择界面——循环播放"C:\Users\Dusk_Wind\Desktop\Project\Dungeon Warriors\music\奖励.mp3"；
+
+GUI修正：
+删除战斗界面的装备信息显示；
+
+怪物行为修正：
+自动寻路机制：优化怪物的自动寻路行为，使其更为自然流畅，严禁出现原地前后往复运动！
+循伤索敌机制：当受到远程攻击且玩家不在怪物索敌范围内时，其索敌范围+50%，持续三秒；
+自由徘徊机制：当玩家不在怪物索敌范围内时，其将以正常60%的速度在地图上自由徘徊；
+
+新增功能测试：为玩家近战攻击增加一道弧形白色剑气，角度大约120°；
+
+
+

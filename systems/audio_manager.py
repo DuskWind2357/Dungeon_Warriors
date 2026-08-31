@@ -1,5 +1,5 @@
 """
-Dungeon Warriors V1.0.2 — 音效系统
+Dungeon Warriors V1.0.5.12 — 音效系统
 每怪物类型: 环境音/受击/死亡/弹射物 + BOSS特殊音效
 """
 
@@ -67,6 +67,9 @@ class AudioManager:
         if "卫道士" in name: return "vindicator"
         if "掠夺者" in name: return "pillager"
         if "高塔之主" in name: return "tower_master"
+        # V1.0.5.12 新增特殊实体音效映射
+        if "试炼刷怪笼" in name: return "trial_spawner"
+        if "宝箱" in name: return "chest"
         return ""
 
     # ================================================================
@@ -86,13 +89,16 @@ class AudioManager:
             "vindicator":   "卫道士突袭队长",
             "pillager":     "掠夺者突袭队长",
             "tower_master": "高塔之主",
+            # V1.0.5.12 新增特殊实体音效目录
+            "trial_spawner": "试炼刷怪笼",
+            "chest":        "宝箱",
         }
         for key, dname in dir_map.items():
             dp = os.path.join(base, dname)
             if not os.path.exists(dp): continue
             self._sounds[key] = {}
             # 子目录
-            for sub in ["环境音","受击","死亡"]:
+            for sub in ["环境音","受击","死亡","召唤"]:
                 sp = os.path.join(dp, sub)
                 if os.path.exists(sp):
                     self._sounds[key][sub] = self._load_files(sp)
@@ -103,6 +109,11 @@ class AudioManager:
         portal_dir = os.path.join(base, "portal")
         if os.path.exists(portal_dir):
             self._sounds["portal"] = {"_root": self._load_files(portal_dir)}
+
+        # V1.0.5.12 补丁: 特殊宝藏房间解锁音效（sounds/unlock 随机）
+        unlock_dir = os.path.join(base, "unlock")
+        if os.path.exists(unlock_dir):
+            self._sounds["unlock"] = {"_root": self._load_files(unlock_dir)}
 
         print(f"[Audio] {sum(len(v) for k in self._sounds for v in self._sounds[k].values())} sounds")
 
@@ -165,7 +176,9 @@ class AudioManager:
         key = self._monster_key(monster_name)
         now = pygame.time.get_ticks()/1000.0
         last = self._ambient_timers.get(monster_id, 0)
-        if now - last < 3.0: return          # 每3秒
+        # V1.0.5.12 试炼刷怪笼环境音间隔5秒，其他怪物3秒
+        interval = 5.0 if "试炼刷怪笼" in monster_name else 3.0
+        if now - last < interval: return
         if random.random() > 0.5: return     # 50%概率
         self._ambient_timers[monster_id] = now
         self._play_pool(key, "环境音", f"amb_{key}")
@@ -185,6 +198,14 @@ class AudioManager:
 
     def play_boss_summon(self):
         self._play_root("tower_master", "召唤", "boss_summon")
+
+    def play_boss_ice_fireball(self):
+        """V1.0.5.11: 高塔之主发射冰焰弹音效"""
+        self._play_root("tower_master", "发射冰焰弹", "boss_ice_fireball")
+
+    def play_reward_bgm(self):
+        """V1.0.5.11: 奖励选择界面BGM（循环播放）"""
+        self._play_bgm("music/奖励.mp3")
 
     # ================================================================
     # 玩家音效
@@ -212,6 +233,10 @@ class AudioManager:
 
     def play_portal_appear(self):
         self._play_root("player", "通关", "portal")
+
+    def play_victory(self):
+        """通关胜利音效（V1.0.5.9: 击败高塔之主即时通关）"""
+        self._play_root("player", "通关", "victory")
 
     def play_eat(self):
         self._play_root("player", "eat", "eat_sound")
@@ -249,14 +274,30 @@ class AudioManager:
         """传送完成音效"""
         self._play_root("portal", "travel", "portal_travel")
 
+    def play_unlock(self):
+        """V1.0.5.12 补丁: 使用钥匙解锁特殊宝藏房间音效（sounds/unlock 随机播放）"""
+        self._play_root("unlock", "", "unlock")
+
     # ================================================================
     # BGM 背景音乐（使用 pygame.mixer.music，与音效互不干扰）
     # ================================================================
-    def play_menu_bgm(self) -> None:
-        """播放主菜单BGM（循环播放，从头开始）"""
+
+    # 楼层 → BGM 映射（V1.0.5.11 音乐添加及播放规则）
+    # 值为文件 → 直接循环播放; 值为目录 → 随机取其中一首循环播放
+    FLOOR_BGM_MAP: dict[str, str] = {
+        "dungeon":         "music/地牢.mp3",      # 1-9 层
+        "snow":            "music/雪地",          # 11-19 层（目录随机）
+        "hell":            "music/地狱",          # 21-29 层（目录随机）
+        "boss_floor":      "music/BOSS.mp3",      # 10/20/30 层（不含BOSS房间）
+        "head_boss_room":  "music/头目.mp3",      # 头目BOSS房间（10/20层BOSS战）
+        "final_boss_room": "music/高塔之主.mp3",  # 首领BOSS房间（30层BOSS战）
+    }
+
+    def _play_bgm(self, relative_path: str) -> None:
+        """通用 BGM 播放器（循环播放, 从头开始）"""
         if not self._enabled or not self._bgm_enabled:
             return
-        bgm_path = resource_path("music/大厅BGM.mp3")
+        bgm_path = resource_path(relative_path)
         if not os.path.exists(bgm_path):
             print(f"[Audio] BGM not found: {bgm_path}")
             return
@@ -267,6 +308,31 @@ class AudioManager:
             self._current_bgm = bgm_path
         except pygame.error as e:
             print(f"[Audio] BGM load failed: {e}")
+
+    def play_menu_bgm(self) -> None:
+        """播放主菜单BGM（循环播放，从头开始）"""
+        self._play_bgm("music/大厅BGM.mp3")
+
+    def play_floor_bgm(self, bgm_key: str) -> None:
+        """播放楼层BGM（V1.0.5.11）。目录映射 → 随机取一首循环播放。
+        key 未映射或文件缺失时静默停止。"""
+        rel = self.FLOOR_BGM_MAP.get(bgm_key)
+        if not rel:
+            self.stop_bgm()
+            return
+        path = resource_path(rel)
+        if os.path.isdir(path):
+            tracks = [f for f in sorted(os.listdir(path))
+                      if f.endswith(('.mp3', '.ogg', '.wav'))]
+            if not tracks:
+                self.stop_bgm()
+                return
+            self._play_bgm(os.path.join(rel, random.choice(tracks)))
+            return
+        if not os.path.exists(path):
+            self.stop_bgm()
+            return
+        self._play_bgm(rel)
 
     def stop_bgm(self) -> None:
         """立即停止BGM"""
