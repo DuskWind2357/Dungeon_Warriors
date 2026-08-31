@@ -1192,172 +1192,168 @@ class CombatScene:
             if monster.check_phase_transition():
                 self.toasts.append(make_toast(f"{monster.name} 进入新阶段！"))
 
+            # V1.0.5.12 不可移动实体（宝箱/试炼刷怪笼）
+            if getattr(monster, 'immobile', False):
+                if monster.monster_type == "trial_spawner":
+                    if not hasattr(monster, 'spawn_timer'): monster.spawn_timer = 0.0
+                    if not hasattr(monster, 'spawn_interval'): monster.spawn_interval = 10.0
+                    monster.spawn_timer -= dt
+                    if not hasattr(monster, 'ambient_timer'): monster.ambient_timer = 0.0
+                    monster.ambient_timer -= dt
+                    dist_to_player = math.sqrt((self.player.x - monster.x) ** 2 + (self.player.y - monster.y) ** 2)
+                    if dist_to_player <= TILE_SIZE * 6 and monster.ambient_timer <= 0:
+                        if self.audio:
+                            self.audio.play_ambient(monster.name, id(monster))
+                        monster.ambient_timer = 5.0
+                    in_range = is_in_range(monster.x, monster.y, self.player.x, self.player.y, monster.detect_range)
+                    if in_range and monster.spawn_timer <= 0:
+                        self._trial_spawner_summon(monster)
+                        monster.spawn_timer = monster.spawn_interval
+                continue
+
+            # 最终BOSS技能系统（V1.0.5.9）
             if monster.monster_type == "final_boss":
-                monster.summon_timer += dt
-                # P2 360 deg 18 fireballs every 10s
-                if monster.phase >= 2 and not hasattr(monster, '_p2_fb_timer'): monster._p2_fb_timer = 0.0
-                if monster.phase >= 2:
-                    monster._p2_fb_timer = round(getattr(monster, '_p2_fb_timer', 0) + dt, 2)
-                    from data.monsters import FINAL_BOSS
-                    if monster._p2_fb_timer >= FINAL_BOSS.get('p2_fireball_interval', 10.0):
-                        monster._p2_fb_timer = 0.0
-                        for j in range(18):
-                            a = j * (2 * math.pi / 18)
-                            vx = math.cos(a) * FIREBALL_SPEED * 0.5
-                            vy = math.sin(a) * FIREBALL_SPEED * 0.5
-                            self.projectiles.append({
-                                'x': monster.x, 'y': monster.y,
-                                'vx': vx, 'vy': vy, 'damage': 8,
-                                'traveled': 0.0, 'weapon': None, 'shooter': id(monster),
-                                'burn': 5.0, 'burn_dmg': 9, 'burn_level': 3,
-                                'speed': FIREBALL_SPEED, 'range': FIREBALL_RANGE,
-                            })
-                if monster.summon_timer >= MONSTER_FINAL_BOSS_SUMMON_INTERVAL:
-                    monster.summon_timer = 0
-                    if random.random() < MONSTER_FINAL_BOSS_SUMMON_CHANCE:
-                        self._boss_summon(monster)
-                    if self.audio:
-                        self.audio.play_boss_summon()
+                if getattr(monster, 'locked', False):
+                    minions = getattr(monster, '_ultimate_minions', [])
+                    if minions and all(not m.is_alive() for m in minions):
+                        monster.locked = False
+                        monster._output_mult = 1.0
+                        self.toasts.append(make_toast('高塔之主的锁血已解除！', color=(255, 215, 0)))
+                if not hasattr(monster, 'skill_cd'): monster.skill_cd = 0.0
+                if monster.skill_cd > 0:
+                    monster.skill_cd -= dt
+                self._update_boss_barrage(monster, dt)
+                if monster.skill_cd <= 0:
+                    if getattr(monster, '_rooted', False):
+                        pass
+                    elif monster.hp < monster.max_hp and monster.phase >= 3 and not getattr(monster, '_ultimate_used', False):
+                        self._boss_ultimate(monster)
+                        monster.skill_cd = 12.0
+                    elif monster.phase == 1:
+                        if self._boss_summon_allowed():
+                            self._boss_summon(monster)
+                            if self.audio:
+                                self.audio.play_boss_summon()
+                        monster.skill_cd = 15.0
+                    else:
+                        if random.random() < 0.5:
+                            self._boss_barrage(monster)
+                        monster.skill_cd = 15.0 if monster.phase == 2 else 12.0
 
-            # 使用动态索敌范围（V1.0.4 P3 循伤索敌期间×1.5）
+            # 索敌范围
             detect_range = monster.get_current_detect_range()
-            in_range = is_in_range(monster.x, monster.y,
-                                   self.player.x, self.player.y,
-                                   detect_range)
+            in_range = is_in_range(monster.x, monster.y, self.player.x, self.player.y, detect_range)
+            dist_to_player = math.sqrt((self.player.x - monster.x) ** 2 + (self.player.y - monster.y) ** 2)
 
-            # 玩家离开索敌范围后重置 aggro，怪物恢复徘徊
-            if not in_range and monster.aggro:
+            # 玩家离开索敌范围后重置 aggro（×1.25 容差）
+            if monster.aggro and not is_in_range(monster.x, monster.y, self.player.x, self.player.y, monster.get_current_detect_range() * 1.25):
                 monster.aggro = False
-                monster._path = None  # 清空旧追击路径，重新选徘徊目标
+                monster._path = None
 
             if in_range and not monster.aggro and not self.in_spawn_zone and not self.player.is_invisible():
                 monster.aggro = True
-                monster._path = None  # 清空徘徊路径，开始追击
+                monster._path = None
 
-            # === 移动：A* 寻路（追击/循伤/徘徊） ===
+            # 移动
             current_speed = monster.get_current_speed()
             if monster.is_tracking_attacker():
-                # 循伤索敌：向攻击来源方向移动（V1.0.4 P3）
                 track_grid = pixel_to_grid(monster.track_attacker_x, monster.track_attacker_y)
                 self._move_with_astar(monster, track_grid, current_speed, dt)
             elif not monster.aggro:
-                # 徘徊：走向随机目的地
-                # 徘徊 0.5 px/f（分数累加器）
                 if not hasattr(monster, '_wander_accum'): monster._wander_accum = 0.0
-                monster._wander_accum += 0.5 * dt * 60  # 每帧 +0.5
+                monster._wander_accum += monster.speed * 0.6 * dt * 60
                 wsteps = int(monster._wander_accum)
                 if wsteps > 0:
                     monster._wander_accum -= wsteps
                     self._move_with_astar(monster, None, wsteps, dt)
             else:
-                # 追击：走向玩家
-                self._move_with_astar(monster,
-                    pixel_to_grid(self.player.x, self.player.y),
-                    current_speed, dt)
-
-            # 环境音（3格内每3秒50%概率）
-            if in_range and self.audio:
-                dist_to_player = math.sqrt((self.player.x-monster.x)**2+(self.player.y-monster.y)**2)
-                if dist_to_player <= TILE_SIZE * 3:
-                    self.audio.play_ambient(monster.name, id(monster))
-
-            if not in_range or self.in_spawn_zone or self.player.is_invisible():
-                continue
-
-            # === 技能系统 ===
-            dist_to_player = math.sqrt((self.player.x-monster.x)**2+(self.player.y-monster.y)**2)
-            if not hasattr(monster, 'skill_cd'): monster.skill_cd = 0.0
-            if monster.skill_cd > 0: monster.skill_cd -= dt
-
-            # 精英僵尸/冰霜僵尸: >3格且HP<50% → 回复50%（不满足则不进冷却）
-            if ('精英僵尸' in monster.name or '冰霜僵尸' in monster.name) and monster.skill_cd <= 0 and dist_to_player > TILE_SIZE*3 and monster.hp < monster.max_hp * 0.5:
-                monster.hp = min(monster.max_hp, monster.hp + monster.max_hp//2)
-                monster.skill_cd = 20.0; self.toasts.append(make_toast(f'{monster.name} 回复生命！'))
-            # 精英骷髅/流髑: >3格 → 三连箭
-            elif ('精英骷髅' in monster.name or '流髑' in monster.name) and monster.skill_cd <= 0 and dist_to_player > TILE_SIZE*3:
-                for j in range(3):
-                    a = math.atan2(self.player.y-monster.y, self.player.x-monster.x) + (j-1)*0.08
-                    vx = math.cos(a)*ENEMY_ARROW_SPEED*0.75; vy = math.sin(a)*ENEMY_ARROW_SPEED*0.75
-                    frost_dur = 5.0 if '流髑' in monster.name else 0.0
-                    frost_level = 2 if '流髑' in monster.name else 0  # V1.0.5.8: 流髑附加II级霜冻
-                    self.projectiles.append({'x':monster.x,'y':monster.y,'vx':vx,'vy':vy,'damage':monster.attack,'traveled':0,'weapon':None,'shooter':id(monster),'frost': frost_dur, 'frost_level': frost_level, 'speed': ENEMY_ARROW_SPEED, 'range': ENEMY_ARROW_RANGE})
-                monster.skill_cd = 20.0; self.toasts.append(make_toast(f'{monster.name} 三连箭！'))
-            # 暗影骑士: >3格 → 冲刺(1秒×2速)
-            elif '暗影骑士' in monster.name and '暗黑' not in monster.name and monster.skill_cd <= 0 and dist_to_player > TILE_SIZE*3:
-                monster._orig_spd = monster.speed; monster.speed = int(monster.speed*2)
-                monster.skill_cd = 20.0; monster._dash_timer = 1.0
-                self.toasts.append(make_toast('暗影骑士 冲刺！'))
-            # 冲刺恢复
-            if hasattr(monster, '_dash_timer') and monster._dash_timer > 0:
-                monster._dash_timer -= dt
-                if monster._dash_timer <= 0:
-                    monster.speed = monster._orig_spd
-                    delattr(monster, '_dash_timer'); delattr(monster, '_orig_spd')
-            # 烈焰使者: >3格 → 召唤2小岩浆史莱姆
-            if '烈焰使者' in monster.name and monster.skill_cd <= 0 and dist_to_player > TILE_SIZE*3:
-                self._spawn_slime_child('小型岩浆史莱姆', self.player, TILE_SIZE)
-                self._spawn_slime_child('小型岩浆史莱姆', self.player, TILE_SIZE)
-                monster.skill_cd = 20.0; self.toasts.append(make_toast('烈焰使者 召唤！'))
-            # 暗黑骑士: >4格 → 瞬移至1.5格处
-            if '暗黑骑士' in monster.name and monster.skill_cd <= 0 and dist_to_player > TILE_SIZE*4:
+                self._move_with_astar(monster, pixel_to_grid(self.player.x, self.player.y), current_speed, dt)
+            # 技能触发
+            can_skill = monster.hp < monster.max_hp
+            if can_skill and '精英僵尸' in monster.name and monster.skill_cd <= 0 and monster.hp < monster.max_hp:
+                heal = int(monster.max_hp * random.uniform(0.3, 0.5))
+                monster.hp = min(monster.max_hp, monster.hp + heal)
+                monster._healed_once = True
+                monster.skill_cd = 20.0
+                self.toasts.append(make_toast(f"{monster.name}发动了自我痊愈技能！"))
+            elif can_skill and '冰霜僵尸' in monster.name and monster.skill_cd <= 0 and dist_to_player > TILE_SIZE * 4:
+                self._fire_ice_bomb(monster)
+                monster.skill_cd = 10.0
+                self.toasts.append(make_toast(f"{monster.name}发动了投掷冰弹技能！"))
+            elif can_skill and '精英骷髅' in monster.name and monster.skill_cd <= 0 and dist_to_player > TILE_SIZE * 4:
+                self._fire_snipe(monster)
+                monster.skill_cd = 10.0
+                self.toasts.append(make_toast(f"{monster.name}发动了精确狙击技能！"))
+            elif can_skill and '流髑' in monster.name and monster.skill_cd <= 0:
+                self._fire_multishot(monster)
+                monster.skill_cd = 20.0
+                self.toasts.append(make_toast(f"{monster.name}发动了多重射击技能！"))
+            elif can_skill and '暗影骑士' in monster.name and '暗黑' not in monster.name and monster.skill_cd <= 0 and dist_to_player < TILE_SIZE * 6:
+                monster.speed *= 2.0
+                monster._dash_timer = 1.5
+                monster._dash_dmg_mult = 2.5
+                monster.skill_cd = 20.0
+                self.toasts.append(make_toast(f"{monster.name}发动了闪击技能！"))
+            elif can_skill and '烈焰使者' in monster.name and monster.skill_cd <= 0:
+                r = random.random()
+                if r < 0.3:
+                    cnt, child = 2, '中型岩浆史莱姆'
+                elif r < 0.5:
+                    cnt, child = 1, '中型岩浆史莱姆'
+                elif r < 0.8:
+                    cnt, child = 4, '小型岩浆史莱姆'
+                else:
+                    cnt, child = 3, '小型岩浆史莱姆'
+                for _ in range(cnt):
+                    self._spawn_slime_child(child, monster)
+                monster.skill_cd = 20.0
+                self.toasts.append(make_toast(f"{monster.name}发动了召唤术式技能！"))
+            elif can_skill and '卫道士' in monster.name and monster.skill_cd <= 0 and dist_to_player <= monster.attack_range * TILE_SIZE:
+                monster._fury_timer = 2.0
+                monster._fury_atk_mult = 1.5
+                monster._fury_cd_mult = 0.5
+                monster.skill_cd = 15.0
+                self.toasts.append(make_toast(f"{monster.name}发动了狂怒技能！"))
+            elif can_skill and '掠夺者' in monster.name and monster.skill_cd <= 0:
+                monster._rain_shots = 10
+                monster._rain_timer = 0.0
+                monster._rooted = True
+                monster.skill_cd = 15.0
+                self.toasts.append(make_toast(f"{monster.name}发动了箭雨技能！"))
+            elif can_skill and '暗黑骑士' in monster.name and monster.skill_cd <= 0 and dist_to_player < TILE_SIZE * 10:
                 for _ in range(20):
-                    a = random.uniform(0, 2*math.pi); d = TILE_SIZE*1.5
-                    tx = self.player.x+math.cos(a)*d; ty = self.player.y+math.sin(a)*d
-                    if not self._collides_wall(tx, ty): monster.x=tx; monster.y=ty; break
-                monster.skill_cd = 20.0; self.toasts.append(make_toast('暗黑骑士 瞬移！'))
-            # 炎魔: >4格 → 召唤3中岩浆史莱姆
-            if '炎魔' in monster.name and monster.skill_cd <= 0 and dist_to_player > TILE_SIZE*4:
-                for _ in range(3): self._spawn_slime_child('中型岩浆史莱姆', self.player, TILE_SIZE*1.5)
-                monster.skill_cd = 25.0; self.toasts.append(make_toast('炎魔 召唤！'))
+                    a = random.uniform(0, 2 * math.pi)
+                    d = TILE_SIZE * 1.5
+                    tx = self.player.x + math.cos(a) * d
+                    ty = self.player.y + math.sin(a) * d
+                    if not self._collides_wall(tx, ty):
+                        monster.x = tx
+                        monster.y = ty
+                        break
+                monster._assault_timer = 2.0
+                monster._assault_dmg_mult = 2.0
+                monster.speed *= 1.5
+                monster.skill_cd = 15.0
+                self.toasts.append(make_toast(f"{monster.name}发动了暗影突袭技能！"))
+            elif can_skill and '炎魔' in monster.name and monster.skill_cd <= 0 and dist_to_player < TILE_SIZE * 10:
+                monster._flame_waves = 3
+                monster._flame_timer = 0.0
+                monster._rooted = True
+                monster.skill_cd = 15.0
+                self.toasts.append(make_toast(f"{monster.name}发动了浴火焚身技能！"))
 
-            # 远程怪物 AI：发射投射物，保持距离
+            self._update_skill_states(monster, dt)
+            # 攻击
             if monster.ranged_attacker:
-                atk_px = monster.attack_range * TILE_SIZE
-                dist_p = math.sqrt((self.player.x-monster.x)**2 + (self.player.y-monster.y)**2)
-
-                # 骷髅障碍物检测（V1.0.4 P3）：直线上有障碍物时主动寻路靠近而非射击
-                is_skeleton = '骷髅' in monster.name or '流髑' in monster.name
-                has_line_of_sight = True
-                if is_skeleton:
-                    # 检测与玩家直线上是否有障碍物
-                    monster_grid = pixel_to_grid(monster.x, monster.y)
-                    player_grid = pixel_to_grid(self.player.x, self.player.y)
-                    from systems.pathfinding import _line_clear
-                    has_line_of_sight = _line_clear(self.grid, monster_grid, player_grid)
-
-                if dist_p > atk_px * 0.8:
-                    nx, ny = move_toward(monster.x, monster.y,
-                                         self.player.x, self.player.y, monster.speed)
-                    if not self._collides_wall(nx, monster.y): monster.x = nx
-                    if not self._collides_wall(monster.x, ny): monster.y = ny
-                # 玩家距离<2格时以50%速度远离（除首领外）
-                if dist_p < TILE_SIZE * 2 and monster.monster_type != 'final_boss':
-                    flee_spd = max(1, int(monster.speed * 0.5))
-                    nx, ny = move_toward(monster.x, monster.y,
-                                         self.player.x, self.player.y, -flee_spd)
-                    if not self._collides_wall(nx, monster.y): monster.x = nx
-                    if not self._collides_wall(monster.x, ny): monster.y = ny
-                # 距离<1格时优先逃逸，不攻击
-                if dist_p < TILE_SIZE * 1 and monster.monster_type != 'final_boss':
-                    continue
-                # 骷髅无障碍物时不射击，主动寻路靠近（V1.0.4 P3）
-                if is_skeleton and not has_line_of_sight:
-                    # 主动寻路靠近玩家
-                    self._move_with_astar(monster,
-                        pixel_to_grid(self.player.x, self.player.y),
-                        monster.speed, dt)
-                    continue
                 if monster.cooldown_remaining <= 0:
                     dx = self.player.x - monster.x
                     dy = self.player.y - monster.y
-                    dist = math.sqrt(dx*dx + dy*dy)
+                    dist = math.sqrt(dx * dx + dy * dy)
                     if dist > 0:
-                        is_fireball = ('烈焰使者' in monster.name or '炎魔' in monster.name)
-                        is_ice_bomb = '冰弹' in monster.name or '冰霜僵尸' in monster.name
+                        is_fireball = ('烈焰使者' in monster.name) or ('炎魔' in monster.name)
+                        is_ice_bomb = ('冰弹' in monster.name) or ('冰霜僵尸' in monster.name)
                         count = 3 if is_fireball else 1
                         base_angle = math.atan2(dy, dx)
-                        
-                        # V1.0.5.8: 根据怪物类型选择弹射物属性
                         if is_fireball:
                             proj_speed = FIREBALL_SPEED
                             proj_range = FIREBALL_RANGE
@@ -1367,23 +1363,22 @@ class CombatScene:
                         else:
                             proj_speed = ENEMY_ARROW_SPEED
                             proj_range = ENEMY_ARROW_RANGE
-                        
                         for j in range(count):
-                            spread = (j - 1) * 0.10 if count > 1 else 0
+                            spread = (j - 1) * 0.1 if count > 1 else 0
                             a = base_angle + spread
-                            vx = math.cos(a) * proj_speed * 0.5
-                            vy = math.sin(a) * proj_speed * 0.5
+                            vx = math.cos(a) * proj_speed * ENEMY_PROJECTILE_SPEED_MULT
+                            vy = math.sin(a) * proj_speed * ENEMY_PROJECTILE_SPEED_MULT
                             proj = {
                                 'x': monster.x, 'y': monster.y,
                                 'vx': vx, 'vy': vy, 'damage': monster.attack,
                                 'traveled': 0.0, 'weapon': None, 'shooter': id(monster),
-                                'speed': proj_speed, 'range': proj_range,
+                                'speed': proj_speed * ENEMY_PROJECTILE_SPEED_MULT, 'range': proj_range,
+                                'proj_type': 'fireball' if is_fireball else ('ice_bomb' if is_ice_bomb else 'arrow'),
                             }
                             if '烈焰使者' in monster.name:
                                 proj['burn'] = 4.0; proj['burn_dmg'] = 7; proj['damage'] = 5; proj['burn_level'] = 2
                             elif '炎魔' in monster.name:
                                 proj['burn'] = 5.0; proj['burn_dmg'] = 9; proj['damage'] = 8; proj['burn_level'] = 3
-                            # 流髑箭矢附加霜冻（V1.0.4）
                             if '流髑' in monster.name:
                                 proj['frost'] = 3.0
                             self.projectiles.append(proj)
@@ -1391,40 +1386,53 @@ class CombatScene:
                         monster.cooldown_remaining = cd
                         if self.audio:
                             self.audio.play_projectile(monster.name)
-            elif monster_attack_player(monster, self.player):
-                # 岩浆史莱姆燃烧
-                if '岩浆史莱姆' in monster.name:
-                    self.player.add_status('burn', 3.0, 5)
-                # 头目暴击（卫道士/掠夺者每3次攻击60%×2）
-                if '卫道士' in monster.name or '掠夺者' in monster.name:
-                    if not hasattr(monster, '_atk_cnt'): monster._atk_cnt = 0
-                    monster._atk_cnt += 1
-                    if monster._atk_cnt >= 3:
-                        monster._atk_cnt = 0
-                        if random.random() < 0.6:
-                            self.player.take_damage(monster.attack)
-                            self.toasts.append(make_toast('暴击！'))
-                # 凋零效果
-                if "暗影骑士" in monster.name:
-                    self.player.add_status("wither", 3.0)
-                    self.player.buffs.pop("heal_over_time", None)  # 打断回血
-                elif "暗黑骑士" in monster.name:
-                    self.player.add_status("wither", 5.0)
-                    self.player.buffs.pop("heal_over_time", None)
-                # 霜冻攻击（V1.0.4 冰霜僵尸）
-                if '冰霜僵尸' in monster.name:
-                    self.player.add_status("frost", 4.0)
-                if self.audio:
-                    self.audio.play_player_hit()
-                if not self.player.is_alive():
+            else:
+                # 近战移动 + 攻击
+                atk_px = monster.attack_range * TILE_SIZE
+                dist_p = math.sqrt((self.player.x - monster.x) ** 2 + (self.player.y - monster.y) ** 2)
+                is_skeleton = '骷髅' in monster.name
+                monster_grid = pixel_to_grid(monster.x, monster.y)
+                player_grid = pixel_to_grid(self.player.x, self.player.y)
+                from systems.pathfinding import _line_clear
+                has_line_of_sight = _line_clear(self.grid, monster_grid, player_grid)
+                flee_px = max(TILE_SIZE * 1.2, atk_px * 0.6)
+                if dist_p > atk_px * 0.9:
+                    nx, ny = move_toward(monster.x, monster.y, self.player.x, self.player.y, monster.speed)
+                    if not self._collides_wall(nx, monster.y): monster.x = nx
+                    if not self._collides_wall(monster.x, ny): monster.y = ny
+                elif dist_p < flee_px and monster.monster_type != 'final_boss':
+                    flee_spd = max(1.0, monster.speed * 0.5)
+                    nx, ny = move_toward(monster.x, monster.y, self.player.x, self.player.y, -flee_spd)
+                    if not self._collides_wall(nx, monster.y): monster.x = nx
+                    if not self._collides_wall(monster.x, ny): monster.y = ny
+                if dist_p < TILE_SIZE * 1 and monster.monster_type != 'final_boss':
+                    continue
+                if is_skeleton and not has_line_of_sight:
+                    self._move_with_astar(monster, pixel_to_grid(self.player.x, self.player.y), monster.speed, dt)
+                    continue
+                if monster_attack_player(monster, self.player):
+                    if '中型岩浆史莱姆' in monster.name:
+                        self.player.add_status('burn', 3.0, 7, level=2)
+                    elif '小型岩浆史莱姆' in monster.name:
+                        self.player.add_status('burn', 3.0, 5, level=1)
+                    if '暗影骑士' in monster.name:
+                        self.player.add_status('wither', 4.0)
+                        self.player.buffs.pop('heal_over_time', None)
+                    elif '暗黑骑士' in monster.name:
+                        self.player.add_status('wither', 6.0)
+                        self.player.buffs.pop('heal_over_time', None)
+                    if '冰霜僵尸' in monster.name:
+                        self.player.add_status('frost', 5.0, level=1)
                     if self.audio:
-                        self.audio.play_player_death()
-                    return
-            elif monster.cooldown_remaining <= 0:
-                pass  # 移动由 _move_with_astar 统一处理
+                        self.audio.play_player_hit()
+                    if not self.player.is_alive():
+                        if self.audio:
+                            self.audio.play_player_death()
+                        return
 
     def _move_with_astar(self, monster, goal_grid, speed, dt):
         """统一的 A* 移动：有路径沿路径走，无路径则规划。goal_grid=None 表示徘徊"""
+        speed *= GLOBAL_SPEED_MULT
         path = getattr(monster, '_path', None)
         recalc = getattr(monster, '_recalc', 0)
         retry = getattr(monster, '_retry', 0)
@@ -1467,28 +1475,217 @@ class CombatScene:
             # 无路径（A* 失败）：强制下次重试
             monster._recalc = 0
 
+    def _boss_summon_allowed(self) -> bool:
+        """V1.0.5.11 首领号令发动条件: 全场存活精英数量<4 且 普通怪物数量<6。
+        任意条件不满足则技能发动失败（仍进入冷却）; 首领被动不受影响。"""
+        elites = sum(1 for m in self.monsters if m.is_alive() and m.monster_type == 'elite')
+        normals = sum(1 for m in self.monsters if m.is_alive() and m.monster_type == 'normal')
+        return elites < 4 and normals < 6
+
     def _boss_summon(self, boss: Monster) -> None:
-        r_summon = random.random()
-        if r_summon < 0.5: summon_specs = [("elite", 1)]
-        elif r_summon < 0.8: summon_specs = [("normal", 2)]
-        else: summon_specs = [("normal", 3)]
-        from data.monsters import MONSTER_BASE_STATS, MONSTER_NAMES
-        for mtype, count in summon_specs:
+        """首领号令（V1.0.5.9）: 概率表召唤, 怪物强度与29层一致
+        10% 3精英 / 20% 1精英 / 30% 2精英 / 30% 2普通 / 20% 3普通
+        """
+        r = random.random()
+        if r < 0.1:
+            specs = [('elite', 3)]
+        elif r < 0.3:
+            specs = [('elite', 1)]
+        elif r < 0.6:
+            specs = [('elite', 2)]
+        elif r < 0.9:
+            specs = [('normal', 2)]
+        else:
+            specs = [('normal', 3)]
+        g_summon = DIFFICULTY_MODIFIERS.get(self.difficulty, DIFFICULTY_MODIFIERS['easy'])
+        hp_mult = 1.0 + g_summon['hp_scale_per_floor'] * 28
+        atk_mult = 1.0 + g_summon['atk_scale_per_floor'] * 28
+        pools = {
+            'normal': [m for m in NORMAL_MONSTERS if m['name'] in NATURAL_NORMAL],
+            'elite': ELITE_MONSTERS + SNOW_ELITE_MONSTERS,
+        }
+        for mtype, count in specs:
             for _ in range(count):
-                stats = MONSTER_BASE_STATS.get(mtype, {"hp":30,"attack":5,"attack_range":1.5,"attack_cooldown":0.5})
-                name = random.choice(MONSTER_NAMES.get(mtype, ["怪物"]))
+                mdef = random.choice(pools[mtype])
                 angle = random.uniform(0, 2 * math.pi)
                 dist = random.uniform(TILE_SIZE * 1.5, TILE_SIZE * 3)
                 sx = boss.x + math.cos(angle) * dist
                 sy = boss.y + math.sin(angle) * dist
-                if not self._collides_wall(sx, sy):
-                    m = Monster(name=name, monster_type=mtype,
-                               hp=stats["hp"], max_hp=stats["hp"],
-                               attack=stats["attack"],
-                               attack_range=stats["attack_range"],
-                               attack_cooldown=stats["attack_cooldown"],
-                               x=sx, y=sy, aggro=True)
-                    self.monsters.append(m)
+                if self._collides_wall(sx, sy):
+                    continue
+                hp = int(mdef['hp'] * hp_mult)
+                m = Monster(name=mdef['name'], monster_type=mtype,
+                            hp=hp, max_hp=hp,
+                            attack=int(mdef['atk'] * atk_mult),
+                            attack_range=mdef['range'], attack_cooldown=mdef['cd'],
+                            ranged_attacker=mdef.get('ranged', False),
+                            speed=mdef['speed'] * MONSTER_SPEED_SCALE,
+                            x=sx, y=sy, aggro=True)
+                self.monsters.append(m)
+        self.toasts.append(make_toast(f"{boss.name}发动了首领号令技能！"))
+
+    def _fire_monster_projectile(self, monster, angle, speed, damage, proj_type='arrow',
+                                 burn=0, burn_dmg=0, burn_level=0,
+                                 frost=0, frost_level=0, root=0):
+        """V1.0.5.10: 统一敌方投射物发射（实际位移/记账 = speed×全局系数, 射程字段按弹种文档值）"""
+        range_map = {'arrow': ENEMY_ARROW_RANGE, 'fireball': FIREBALL_RANGE,
+                     'ice_bomb': ICE_BOMB_RANGE, 'ice_fireball': ICE_FIREBALL_RANGE}
+        eff_speed = speed * ENEMY_PROJECTILE_SPEED_MULT
+        proj = {
+            'x': monster.x, 'y': monster.y,
+            'vx': math.cos(angle) * eff_speed, 'vy': math.sin(angle) * eff_speed,
+            'damage': damage, 'traveled': 0.0, 'weapon': None,
+            'shooter': id(monster), 'speed': eff_speed,
+            'range': range_map.get(proj_type, ENEMY_ARROW_RANGE), 'proj_type': proj_type,
+        }
+        if burn > 0:
+            proj['burn'] = burn
+            proj['burn_dmg'] = burn_dmg
+            proj['burn_level'] = burn_level
+        if frost > 0:
+            proj['frost'] = frost
+            proj['frost_level'] = frost_level
+        if root > 0:
+            proj['root'] = root
+        self.projectiles.append(proj)
+
+    def _fire_ice_bomb(self, monster):
+        """投掷冰弹（冰霜僵尸）: 命中 5S霜冻II + 1.5S定身"""
+        angle = math.atan2(self.player.y - monster.y, self.player.x - monster.x)
+        self._fire_monster_projectile(monster, angle, ICE_BOMB_SPEED, monster.attack,
+                                      'ice_bomb', frost=5.0, frost_level=2, root=1.5)
+
+    def _fire_snipe(self, monster):
+        """精确狙击（精英骷髅）: 箭矢速度×200% 伤害×200%"""
+        angle = math.atan2(self.player.y - monster.y, self.player.x - monster.x)
+        self._fire_monster_projectile(monster, angle, ENEMY_ARROW_SPEED * 2.0,
+                                      max(1, int(monster.attack * 2.0)), 'arrow')
+
+    def _fire_multishot(self, monster):
+        """多重射击（流髑）: 三箭 速度×120%"""
+        base = math.atan2(self.player.y - monster.y, self.player.x - monster.x)
+        for j in range(3):
+            self._fire_monster_projectile(monster, base + (j - 1) * 0.15,
+                                          ENEMY_ARROW_SPEED * 1.2, monster.attack, 'arrow')
+
+    def _update_skill_states(self, monster, dt):
+        """V1.0.5.9: 技能持续状态计时（闪击/暗影突袭/狂怒/箭雨/浴火焚身）"""
+        if getattr(monster, '_dash_timer', 0) > 0:
+            monster._dash_timer -= dt
+            if monster._dash_timer <= 0:
+                monster.speed /= 2.0
+                monster._dash_dmg_mult = 1.0
+        if getattr(monster, '_assault_timer', 0) > 0:
+            monster._assault_timer -= dt
+            if monster._assault_timer <= 0:
+                monster.speed /= 1.5
+                monster._assault_dmg_mult = 1.0
+        if getattr(monster, '_fury_timer', 0) > 0:
+            monster._fury_timer -= dt
+            if monster._fury_timer <= 0:
+                monster._fury_atk_mult = 1.0
+                monster._fury_cd_mult = 1.0
+        if getattr(monster, '_rain_shots', 0) > 0:
+            monster._rain_timer += dt
+            while monster._rain_timer >= 0.1 and monster._rain_shots > 0:
+                monster._rain_timer -= 0.1
+                monster._rain_shots -= 1
+                angle = math.atan2(self.player.y - monster.y, self.player.x - monster.x)
+                self._fire_monster_projectile(monster, angle, ENEMY_ARROW_SPEED * 1.2,
+                                              max(1, int(monster.attack * 1.2)), 'arrow')
+            if monster._rain_shots <= 0:
+                monster._rooted = False
+        if getattr(monster, '_flame_waves', 0) > 0:
+            monster._flame_timer += dt
+            if monster._flame_timer >= 0.5:
+                monster._flame_timer = 0.0
+                monster._flame_waves -= 1
+                base = math.atan2(self.player.y - monster.y, self.player.x - monster.x)
+                for j in range(6):
+                    self._fire_monster_projectile(monster, base + (j - 2.5) * 0.12,
+                                                  FIREBALL_SPEED, 8, 'fireball',
+                                                  burn=5.0, burn_dmg=9, burn_level=3)
+                if monster._flame_waves <= 0:
+                    monster._rooted = False
+
+    def _boss_barrage(self, boss):
+        """冰焰弹幕（V1.0.5.9）: 两形态随机发动其一, 施放期间原地定身
+        形态一: 360°均匀三轮各18枚（0.6s间隔）
+        形态二: 朝玩家五轮每轮5枚（0.3s间隔）
+        冰焰弹: 命中 3S燃烧II + 3S霜冻II
+        """
+        if random.random() < 0.5:
+            boss._barrage_mode = 'circle'
+            boss._barrage_waves = 3
+            boss._barrage_per_wave = 18
+            boss._barrage_interval = 0.6
+        else:
+            boss._barrage_mode = 'aimed'
+            boss._barrage_waves = 5
+            boss._barrage_per_wave = 5
+            boss._barrage_interval = 0.3
+        boss._barrage_timer = 0.0
+        boss._rooted = True
+        self.toasts.append(make_toast(f"{boss.name}发动了冰焰弹幕技能！"))
+
+    def _update_boss_barrage(self, boss, dt):
+        """冰焰弹幕逐轮发射处理"""
+        if getattr(boss, '_barrage_waves', 0) <= 0:
+            return
+        boss._barrage_timer += dt
+        if boss._barrage_timer < boss._barrage_interval:
+            return
+        boss._barrage_timer = 0.0
+        boss._barrage_waves -= 1
+        if self.audio:
+            self.audio.play_boss_ice_fireball()
+        if boss._barrage_mode == 'circle':
+            for j in range(boss._barrage_per_wave):
+                a = j * (2 * math.pi / boss._barrage_per_wave)
+                self._fire_monster_projectile(boss, a, ICE_FIREBALL_SPEED, boss.attack,
+                                              'ice_fireball', burn=3.0, burn_dmg=7, burn_level=2,
+                                              frost=3.0, frost_level=2)
+        else:
+            base = math.atan2(self.player.y - boss.y, self.player.x - boss.x)
+            for j in range(boss._barrage_per_wave):
+                spread = (j - (boss._barrage_per_wave - 1) / 2) * 0.12
+                self._fire_monster_projectile(boss, base + spread, ICE_FIREBALL_SPEED, boss.attack,
+                                              'ice_fireball', burn=3.0, burn_dmg=7, burn_level=2,
+                                              frost=3.0, frost_level=2)
+        if boss._barrage_waves <= 0:
+            boss._rooted = False
+
+    def _boss_ultimate(self, boss):
+        """起死回生（V1.0.5.9 终极技能, 仅一次）:
+        召唤两名头目(1近战+1远程), 被击败前首领锁血且对玩家伤害-60%
+        """
+        diff_mod = DIFFICULTY_MODIFIERS.get(self.difficulty, DIFFICULTY_MODIFIERS['easy'])
+        minions = []
+        for mdef in (random.choice(HEAD_BOSS_MELEE), random.choice(HEAD_BOSS_RANGED)):
+            angle = random.uniform(0, 2 * math.pi)
+            sx = boss.x + math.cos(angle) * TILE_SIZE * 2.5
+            sy = boss.y + math.sin(angle) * TILE_SIZE * 2.5
+            if self._collides_wall(sx, sy):
+                sx, sy = boss.x, boss.y
+            floor_boost = head_boss_floor_boost(self.current_floor, self.difficulty)
+            hp = int(mdef['hp'] * diff_mod['boss_hp_mult'] * floor_boost)
+            m = Monster(name=mdef['name'], monster_type='head_boss',
+                        hp=hp, max_hp=hp,
+                        attack=int(mdef['atk'] * diff_mod['boss_atk_mult'] * floor_boost),
+                        attack_range=mdef['range'],
+                        attack_cooldown=mdef['cd'] * diff_mod['boss_cd_mult'],
+                        ranged_attacker=mdef.get('ranged', False),
+                        speed=mdef['speed'] * MONSTER_SPEED_SCALE,
+                        x=sx, y=sy, aggro=True,
+                        detect_range=mdef.get('detect', 600),
+                        dr_ranged=mdef.get('dr_ranged', 0.0), dr_melee=mdef.get('dr_melee', 0.0))
+            minions.append(m)
+            self.monsters.append(m)
+        boss._ultimate_minions = minions
+        boss.locked = True
+        boss._output_mult = 0.4
+        boss._ultimate_used = True
+        self.toasts.append(make_toast(f"{boss.name}发动了起死回生技能！"))
 
     # ================================================================
     # 移动
@@ -1691,6 +1888,154 @@ class CombatScene:
         if item:
             room_idx = self.current_room.room_idx if self.current_room else 0
             self._add_drop(room_idx, (item, monster.x, monster.y - 10))
+
+    def _trial_spawner_summon(self, spawner):
+        """V1.0.5.12 试炼刷怪笼召唤怪物
+        召唤概率表：20% 3精英 / 20% 2精英 / 30% 4普通 / 30% 3普通
+        怪物属性与所在楼层刷出的怪物一致
+        """
+        roll = random.random()
+        cumulative = 0
+        count = 3
+        monster_type = 'normal'
+        for weight, cnt, mtype in TRIAL_SPAWN_WEIGHTS:
+            cumulative += weight
+            if roll < cumulative:
+                count = cnt
+                monster_type = mtype
+                break
+
+        diff_mod = DIFFICULTY_MODIFIERS.get(self.difficulty, DIFFICULTY_MODIFIERS['easy'])
+        hp_scale = diff_mod['hp_scale_per_floor']
+        atk_scale = diff_mod['atk_scale_per_floor']
+        hp_mult = 1.0 + hp_scale * (self.current_floor - 1)
+        atk_mult = 1.0 + atk_scale * (self.current_floor - 1)
+
+        if monster_type == 'elite':
+            if self.current_floor <= 9:
+                pool = [e for e in ELITE_MONSTERS if e['name'] in ('精英僵尸', '精英骷髅')]
+            elif self.current_floor <= 19:
+                pool = SNOW_ELITE_MONSTERS
+            else:
+                snow_names = {e['name'] for e in SNOW_ELITE_MONSTERS}
+                pool = [e for e in ELITE_MONSTERS if e['name'] not in snow_names]
+        else:
+            pool = [m for m in NORMAL_MONSTERS if m['name'] in NATURAL_NORMAL]
+
+        if not pool:
+            return
+
+        for _ in range(count):
+            mdef = random.choice(pool)
+            angle = random.uniform(0, 2 * math.pi)
+            dist = random.uniform(TILE_SIZE * 2, TILE_SIZE * 4)
+            px = spawner.x + math.cos(angle) * dist
+            py = spawner.y + math.sin(angle) * dist
+            if self._collides_wall(px, py):
+                px = spawner.x + random.uniform(-TILE_SIZE * 3, TILE_SIZE * 3)
+                py = spawner.y + random.uniform(-TILE_SIZE * 3, TILE_SIZE * 3)
+            hp = int(mdef['hp'] * hp_mult)
+            atk = int(mdef['atk'] * atk_mult)
+            m = Monster(
+                name=mdef['name'], monster_type=monster_type,
+                hp=hp, max_hp=hp, attack=atk,
+                attack_range=mdef['range'], attack_cooldown=mdef['cd'],
+                ranged_attacker=mdef.get('ranged', False),
+                speed=mdef['speed'] * MONSTER_SPEED_SCALE,
+                x=float(px), y=float(py),
+                wither=mdef.get('wither', 0.0),
+                frost=mdef.get('frost', 0.0),
+                burn=mdef.get('burn', 0.0), burn_dmg=mdef.get('burn_dmg', 0),
+                fireball=mdef.get('fireball', 0), fire_interval=mdef.get('fire_interval', 0.0),
+                detect_range=mdef.get('detect', 480),
+            )
+            m.skill_cd = 0.0
+            self.monsters.append(m)
+            room_idx = self.current_room.room_idx if self.current_room else 0
+            if room_idx not in self.room_monsters:
+                self.room_monsters[room_idx] = []
+            self.room_monsters[room_idx].append(m)
+        if self.audio:
+            self.audio.play_ambient(spawner.name, id(spawner))
+
+    def _chest_drop(self, chest):
+        """V1.0.5.12 宝箱死亡掉落
+        1件随机武器或装备（5%独特，10%T5，15%T4，20% T3，25% T2，25% T1）
+        +随机药水（50%0个，30%1个，20%2个）
+        +面包（50%0个，30%1个，20%2个）
+        """
+        mx, my = chest.x, chest.y
+        room_idx = self.current_room.room_idx if self.current_room else 0
+
+        roll = random.random()
+        cumulative = 0
+        selected_tier = 1
+        is_unique = False
+        for tier_name, weight in CHEST_DROP_EQUIP_WEIGHTS.items():
+            cumulative += weight
+            if roll < cumulative:
+                if tier_name == 'unique':
+                    is_unique = True
+                else:
+                    selected_tier = int(tier_name[1])
+                break
+
+        equip_type = random.choice(['melee_weapon', 'ranged_weapon', 'armor'])
+        if is_unique:
+            if equip_type == 'melee_weapon':
+                item = random.choice([WEAPON_BY_NAME.get('三叉戟'), WEAPON_BY_NAME.get('机械链锯')])
+            elif equip_type == 'ranged_weapon':
+                specials = ['精英之弓', '杀戮之弩', '机械弩', '幻术师之弓']
+                item = WEAPON_BY_NAME.get(random.choice(specials))
+            else:
+                from data.armor import SPECIAL_ARMORS
+                item = random.choice(SPECIAL_ARMORS)
+        else:
+            if equip_type == 'melee_weapon':
+                wtypes = ['sword', 'axe', 'spear', 'dagger']
+                item = WEAPON_BY_TYPE_TIER.get((random.choice(wtypes), selected_tier))
+            elif equip_type == 'ranged_weapon':
+                wtypes = ['bow', 'crossbow']
+                item = WEAPON_BY_TYPE_TIER.get((random.choice(wtypes), selected_tier))
+            else:
+                pool = ARMOR_BY_TIER.get(selected_tier, [])
+                item = random.choice(pool) if pool else None
+        if item:
+            self._add_drop(room_idx, (item, mx, my))
+
+        potion_count = self._weighted_random(CHEST_DROP_POTION_WEIGHTS)
+        for _ in range(potion_count):
+            self._add_drop(room_idx, (random.choice(POTION_POOL), mx + 10, my))
+
+        bread_count = self._weighted_random(CHEST_DROP_BREAD_WEIGHTS)
+        for _ in range(bread_count):
+            self._add_drop(room_idx, (BREAD, mx - 10, my))
+        if self.audio:
+            self.audio.play_ambient(chest.name, id(chest))
+
+    def _trial_spawner_drop(self, spawner):
+        """V1.0.5.12 试炼刷怪笼死亡掉落
+        必掉一件特殊装备（或武器）和两瓶随机药水
+        """
+        mx, my = spawner.x, spawner.y
+        room_idx = self.current_room.room_idx if self.current_room else 0
+
+        equip_type = random.choice(['melee_weapon', 'ranged_weapon', 'armor'])
+        if equip_type == 'melee_weapon':
+            item = random.choice([WEAPON_BY_NAME.get('三叉戟'), WEAPON_BY_NAME.get('机械链锯')])
+        elif equip_type == 'ranged_weapon':
+            specials = ['精英之弓', '杀戮之弩', '机械弩', '幻术师之弓']
+            item = WEAPON_BY_NAME.get(random.choice(specials))
+        else:
+            from data.armor import SPECIAL_ARMORS
+            item = random.choice(SPECIAL_ARMORS)
+        if item:
+            self._add_drop(room_idx, (item, mx, my))
+
+        for _ in range(TRIAL_SPAWNER_DROP_POTIONS):
+            self._add_drop(room_idx, (random.choice(POTION_POOL), mx + 10, my))
+        if self.audio:
+            self.audio.play_ambient(spawner.name, id(spawner))
 
     def _weighted_random(self, weights: dict):
         """按权重随机选择一个键"""
