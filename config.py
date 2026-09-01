@@ -1,5 +1,5 @@
 """
-Dungeon Warriors V1.0.5.21 — 游戏常量配置（平衡性重做）
+Dungeon Warriors V1.0.6.2 — 游戏常量配置（平衡性重做）
 基于 frame/V 1.0.5/平衡性重做/ 设计文档
 """
 
@@ -21,6 +21,13 @@ MAP_ROWS = 15
 # 玩家 (frame.txt + improvement.txt)
 # ============================================================
 PLAYER_BASE_HP = 100
+# V1.0.6 生命上限惩罚（随档保存, 永久生效）
+#   楼层重置(死亡复活/手动重置): 扣除当前生命上限 10% (累乘 0.9)
+#   退出游戏重新进入(战斗继续, 楼层不重置): 扣除当前生命上限 5% (累乘 0.95)
+#   保底: 可扣除至【无惩罚生命上限】的 50%, 不再下降
+MAX_HP_PENALTY_RESET = 0.10
+MAX_HP_PENALTY_REENTER = 0.05
+MAX_HP_PENALTY_FLOOR = 0.50
 # V1.0.5.10: 玩家成长数值并入 DIFFICULTY_MODIFIERS（player_* 字段，按难度取值）
 #   玩家HP  = (基础生命值 + 楼层/击杀生命加成) × (1+护甲倍率)
 #   玩家ATK = (武器伤害 × 基础攻击倍率) × 护甲加成(如有) × 暴击(如有) × 力量(如有)
@@ -46,7 +53,10 @@ MONSTER_ELITE_ATK = 6
 MONSTER_ELITE_RANGE = 1.5
 MONSTER_ELITE_CD = 1.2
 
-MONSTER_HEAD_BOSS_HP = 800
+# V1.0.6.2: 头目BOSS基础HP 800→1600（+100%）。
+# 实际生效取值见 data/monsters.py HEAD_BOSS_MELEE/HEAD_BOSS_RANGED；
+# 第10层生成时额外 ×0.75（基础1200）→ systems/floor_manager.head_boss_floor_hp_mult
+MONSTER_HEAD_BOSS_HP = 1600
 MONSTER_HEAD_BOSS_ATK = 12
 MONSTER_HEAD_BOSS_RANGE = 1.2
 MONSTER_HEAD_BOSS_CD = 1.2

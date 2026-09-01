@@ -136,6 +136,6 @@ class MenuScene:
         credit_rect = credit.get_rect(center=(screen_center_x, screen.get_height() - 20))
         screen.blit(credit, credit_rect)
 
-        version = small_font.render("V1.0.5.21", True, (120, 120, 140))
+        version = small_font.render("V1.0.6.2", True, (120, 120, 140))
         version_rect = version.get_rect(bottomright=(screen.get_width() - 15, screen.get_height() - 10))
         screen.blit(version, version_rect)

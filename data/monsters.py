@@ -71,14 +71,16 @@ SNOW_ELITE_MONSTERS = [
 
 # ================================================================
 # 头目 BOSS（10%远程伤害减免，5%近战伤害减免）
+# V1.0.6.2: 基础HP 800→1600（+100%）；第10层生成时额外×0.75（基础1200）
+#           → 系数见 systems/floor_manager.head_boss_floor_hp_mult
 # ================================================================
 HEAD_BOSS_MELEE = [
-    {"name": "卫道士突袭队长", "hp": 800, "atk": 12, "range": 1.2, "cd": 1.2, "speed": 1.2, "detect": 960, "color": "gold",  "ranged": False, "dr_ranged": 0.10, "dr_melee": 0.05},
-    {"name": "暗黑骑士",      "hp": 800, "atk": 9,  "range": 2.0, "cd": 2.0, "speed": 1.8, "detect": 960, "color": "purple_dark", "ranged": False, "wither": 6.0, "dr_ranged": 0.10, "dr_melee": 0.05, "combo_hits": 3, "combo_interval": 0.3},
+    {"name": "卫道士突袭队长", "hp": 1600, "atk": 12, "range": 1.2, "cd": 1.2, "speed": 1.2, "detect": 960, "color": "gold",  "ranged": False, "dr_ranged": 0.10, "dr_melee": 0.05},
+    {"name": "暗黑骑士",      "hp": 1600, "atk": 9,  "range": 2.0, "cd": 2.0, "speed": 1.8, "detect": 960, "color": "purple_dark", "ranged": False, "wither": 6.0, "dr_ranged": 0.10, "dr_melee": 0.05, "combo_hits": 3, "combo_interval": 0.3},
 ]
 HEAD_BOSS_RANGED = [
-    {"name": "掠夺者突袭队长", "hp": 800, "atk": 15, "range": 1.5, "cd": 1.5, "speed": 1.5, "detect": 960, "color": "blue_light", "ranged": True, "dr_ranged": 0.10, "dr_melee": 0.05},
-    {"name": "炎魔",         "hp": 800, "atk": 0,  "range": 1.5, "cd": 5.0, "speed": 1.5, "detect": 960, "color": "red",        "ranged": True, "fireball": 5, "fire_interval": 0.2, "burn": 5.0, "burn_dmg": 9, "dr_ranged": 0.10, "dr_melee": 0.05},
+    {"name": "掠夺者突袭队长", "hp": 1600, "atk": 15, "range": 1.5, "cd": 1.5, "speed": 1.5, "detect": 960, "color": "blue_light", "ranged": True, "dr_ranged": 0.10, "dr_melee": 0.05},
+    {"name": "炎魔",         "hp": 1600, "atk": 0,  "range": 1.5, "cd": 5.0, "speed": 1.5, "detect": 960, "color": "red",        "ranged": True, "fireball": 5, "fire_interval": 0.2, "burn": 5.0, "burn_dmg": 9, "dr_ranged": 0.10, "dr_melee": 0.05},
 ]
 
 # ================================================================

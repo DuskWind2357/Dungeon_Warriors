@@ -157,6 +157,20 @@ def head_boss_floor_boost(floor_num: int, difficulty: str = "easy") -> float:
     return 1.0 + (floor_num - 1) * diff_mod["hp_scale_per_floor"] / 3.0
 
 
+# V1.0.6.2: 头目BOSS生成楼层系数 —— 仅第10层（首个头目楼层）×0.75，
+# 基础HP 1600 → 1200（参与难度计算 boss_hp_mult × head_boss_floor_boost 之前应用）
+HEAD_BOSS_FIRST_FLOOR = 10
+HEAD_BOSS_FIRST_FLOOR_HP_MULT = 0.75
+
+
+def head_boss_floor_hp_mult(floor_num: int) -> float:
+    """V1.0.6.2 头目BOSS生成楼层系数（floor_manager 内部 + 验证用）
+
+    仅第10层返回 0.75（基础HP 1600→1200），其余楼层（含20层/30层起死回生）返回 1.0。
+    """
+    return HEAD_BOSS_FIRST_FLOOR_HP_MULT if floor_num == HEAD_BOSS_FIRST_FLOOR else 1.0
+
+
 def _opposite_side(side: str) -> str:
     return {"left": "right", "right": "left", "top": "bottom", "bottom": "top"}[side]
 
@@ -808,8 +822,9 @@ def spawn_monsters_boss(room: Room,
             px = (mx + (1 if idx == 0 else -1)) * TILE_SIZE + TILE_SIZE // 2
             py = my * TILE_SIZE + TILE_SIZE // 2
             # V1.0.5.10 头目BOSS公式: 初始 × 难度BOSS倍率 × (1 + (Floor-1) × 难度倍率/3)
+            # V1.0.6.2: 第10层生成额外 ×0.75（基础1600→1200），在难度计算前应用
             floor_boost = head_boss_floor_boost(floor_num, difficulty)
-            hp = int(mdef["hp"] * boss_hp_mult * floor_boost)
+            hp = int(mdef["hp"] * head_boss_floor_hp_mult(floor_num) * boss_hp_mult * floor_boost)
             atk = int(mdef["atk"] * boss_atk_mult * floor_boost)
             cd = mdef["cd"] * boss_cd_mult
             return Monster(name=mdef["name"], monster_type="head_boss",

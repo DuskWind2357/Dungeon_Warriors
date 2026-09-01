@@ -1,8 +1,8 @@
-148 INFO: PyInstaller: 6.21.0, contrib hooks: 2026.6
-148 INFO: Python: 3.11.15 (conda)
-165 INFO: Platform: Windows-10-10.0.26200-SP0
-166 INFO: Python environment: C:\Users\Dusk_Wind\.conda\envs\Game
-170 INFO: Module search paths (PYTHONPATH):
+161 INFO: PyInstaller: 6.21.0, contrib hooks: 2026.6
+161 INFO: Python: 3.11.15 (conda)
+178 INFO: Platform: Windows-10-10.0.26200-SP0
+178 INFO: Python environment: C:\Users\Dusk_Wind\.conda\envs\Game
+181 INFO: Module search paths (PYTHONPATH):
 ['C:\\Users\\Dusk_Wind\\Desktop\\Project\\Dungeon Warriors',
  'C:\\Users\\Dusk_Wind\\.conda\\envs\\Game\\python311.zip',
  'C:\\Users\\Dusk_Wind\\.conda\\envs\\Game\\DLLs',
@@ -12,69 +12,68 @@
  'C:\\Users\\Dusk_Wind\\Desktop\\Project\\Dungeon Warriors']
 pygame 2.6.1 (SDL 2.28.4, Python 3.11.15)
 Hello from the pygame community. https://www.pygame.org/contribute.html
-472 INFO: Appending 'datas' from .spec
-490 INFO: checking Analysis
-511 INFO: Building because C:\Users\Dusk_Wind\Desktop\Project\Dungeon Warriors\rendering\renderer.py changed
-511 INFO: Looking for Python shared library...
-511 INFO: Using Python shared library: C:\Users\Dusk_Wind\.conda\envs\Game\python311.dll
-511 INFO: Running Analysis Analysis-00.toc
-511 INFO: Target bytecode optimization level: 0
-511 INFO: Initializing module dependency graph...
-513 INFO: Initializing module graph hook caches...
-526 INFO: Analyzing modules for base_library.zip ...
-1423 INFO: Processing standard module hook 'hook-heapq.py' from 'C:\\Users\\Dusk_Wind\\.conda\\envs\\Game\\Lib\\site-packages\\PyInstaller\\hooks'
-1483 INFO: Processing standard module hook 'hook-encodings.py' from 'C:\\Users\\Dusk_Wind\\.conda\\envs\\Game\\Lib\\site-packages\\PyInstaller\\hooks'
-2490 INFO: Processing standard module hook 'hook-math.py' from 'C:\\Users\\Dusk_Wind\\.conda\\envs\\Game\\Lib\\site-packages\\PyInstaller\\hooks'
-2558 INFO: Processing standard module hook 'hook-pickle.py' from 'C:\\Users\\Dusk_Wind\\.conda\\envs\\Game\\Lib\\site-packages\\PyInstaller\\hooks'
-3694 INFO: Caching module dependency graph...
-3722 INFO: Analyzing C:\Users\Dusk_Wind\Desktop\Project\Dungeon Warriors\main.py
-3736 INFO: Processing standard module hook 'hook-pygame.py' from 'C:\\Users\\Dusk_Wind\\.conda\\envs\\Game\\Lib\\site-packages\\pygame\\__pyinstaller'
-3819 INFO: Processing pre-safe-import-module hook 'hook-typing_extensions.py' from 'C:\\Users\\Dusk_Wind\\.conda\\envs\\Game\\Lib\\site-packages\\PyInstaller\\hooks\\pre_safe_import_module'
-3819 INFO: SetuptoolsInfo: initializing cached setuptools info...
-4431 INFO: Processing standard module hook 'hook-multiprocessing.util.py' from 'C:\\Users\\Dusk_Wind\\.conda\\envs\\Game\\Lib\\site-packages\\PyInstaller\\hooks'
-4521 INFO: Processing standard module hook 'hook-xml.py' from 'C:\\Users\\Dusk_Wind\\.conda\\envs\\Game\\Lib\\site-packages\\PyInstaller\\hooks'
-4668 INFO: Processing standard module hook 'hook-_ctypes.py' from 'C:\\Users\\Dusk_Wind\\.conda\\envs\\Game\\Lib\\site-packages\\PyInstaller\\hooks'
-4963 INFO: Processing standard module hook 'hook-platform.py' from 'C:\\Users\\Dusk_Wind\\.conda\\envs\\Game\\Lib\\site-packages\\PyInstaller\\hooks'
-5176 INFO: Processing module hooks (post-graph stage)...
-5343 INFO: Performing binary vs. data reclassification (266 entries)
-5375 INFO: Looking for ctypes DLLs
-5383 INFO: Analyzing run-time hooks ...
-5385 INFO: Including run-time hook 'pyi_rth_inspect.py' from 'C:\\Users\\Dusk_Wind\\.conda\\envs\\Game\\Lib\\site-packages\\PyInstaller\\hooks\\rthooks'
-5386 INFO: Including run-time hook 'pyi_rth_pkgutil.py' from 'C:\\Users\\Dusk_Wind\\.conda\\envs\\Game\\Lib\\site-packages\\PyInstaller\\hooks\\rthooks'
-5388 INFO: Including run-time hook 'pyi_rth_multiprocessing.py' from 'C:\\Users\\Dusk_Wind\\.conda\\envs\\Game\\Lib\\site-packages\\PyInstaller\\hooks\\rthooks'
-5395 INFO: Creating base_library.zip...
-5409 INFO: Looking for dynamic libraries
+500 INFO: Appending 'datas' from .spec
+518 INFO: checking Analysis
+539 INFO: Building because C:\Users\Dusk_Wind\Desktop\Project\Dungeon Warriors\scenes\combat_scene.py changed
+539 INFO: Looking for Python shared library...
+539 INFO: Using Python shared library: C:\Users\Dusk_Wind\.conda\envs\Game\python311.dll
+539 INFO: Running Analysis Analysis-00.toc
+539 INFO: Target bytecode optimization level: 0
+539 INFO: Initializing module dependency graph...
+540 INFO: Initializing module graph hook caches...
+553 INFO: Analyzing modules for base_library.zip ...
+1443 INFO: Processing standard module hook 'hook-heapq.py' from 'C:\\Users\\Dusk_Wind\\.conda\\envs\\Game\\Lib\\site-packages\\PyInstaller\\hooks'
+1505 INFO: Processing standard module hook 'hook-encodings.py' from 'C:\\Users\\Dusk_Wind\\.conda\\envs\\Game\\Lib\\site-packages\\PyInstaller\\hooks'
+2236 INFO: Processing standard module hook 'hook-math.py' from 'C:\\Users\\Dusk_Wind\\.conda\\envs\\Game\\Lib\\site-packages\\PyInstaller\\hooks'
+2497 INFO: Processing standard module hook 'hook-pickle.py' from 'C:\\Users\\Dusk_Wind\\.conda\\envs\\Game\\Lib\\site-packages\\PyInstaller\\hooks'
+3403 INFO: Caching module dependency graph...
+3428 INFO: Analyzing C:\Users\Dusk_Wind\Desktop\Project\Dungeon Warriors\main.py
+3442 INFO: Processing standard module hook 'hook-pygame.py' from 'C:\\Users\\Dusk_Wind\\.conda\\envs\\Game\\Lib\\site-packages\\pygame\\__pyinstaller'
+3534 INFO: Processing pre-safe-import-module hook 'hook-typing_extensions.py' from 'C:\\Users\\Dusk_Wind\\.conda\\envs\\Game\\Lib\\site-packages\\PyInstaller\\hooks\\pre_safe_import_module'
+3535 INFO: SetuptoolsInfo: initializing cached setuptools info...
+4135 INFO: Processing standard module hook 'hook-multiprocessing.util.py' from 'C:\\Users\\Dusk_Wind\\.conda\\envs\\Game\\Lib\\site-packages\\PyInstaller\\hooks'
+4252 INFO: Processing standard module hook 'hook-xml.py' from 'C:\\Users\\Dusk_Wind\\.conda\\envs\\Game\\Lib\\site-packages\\PyInstaller\\hooks'
+4383 INFO: Processing standard module hook 'hook-_ctypes.py' from 'C:\\Users\\Dusk_Wind\\.conda\\envs\\Game\\Lib\\site-packages\\PyInstaller\\hooks'
+4697 INFO: Processing standard module hook 'hook-platform.py' from 'C:\\Users\\Dusk_Wind\\.conda\\envs\\Game\\Lib\\site-packages\\PyInstaller\\hooks'
+4913 INFO: Processing module hooks (post-graph stage)...
+5062 INFO: Performing binary vs. data reclassification (266 entries)
+5097 INFO: Looking for ctypes DLLs
+5106 INFO: Analyzing run-time hooks ...
+5107 INFO: Including run-time hook 'pyi_rth_inspect.py' from 'C:\\Users\\Dusk_Wind\\.conda\\envs\\Game\\Lib\\site-packages\\PyInstaller\\hooks\\rthooks'
+5109 INFO: Including run-time hook 'pyi_rth_pkgutil.py' from 'C:\\Users\\Dusk_Wind\\.conda\\envs\\Game\\Lib\\site-packages\\PyInstaller\\hooks\\rthooks'
+5110 INFO: Including run-time hook 'pyi_rth_multiprocessing.py' from 'C:\\Users\\Dusk_Wind\\.conda\\envs\\Game\\Lib\\site-packages\\PyInstaller\\hooks\\rthooks'
+5118 INFO: Creating base_library.zip...
+5139 INFO: Looking for dynamic libraries
 pygame 2.6.1 (SDL 2.28.4, Python 3.11.15)
 Hello from the pygame community. https://www.pygame.org/contribute.html
-5582 INFO: Extra DLL search directories (AddDllDirectory): ['C:\\Users\\Dusk_Wind\\.conda\\envs\\Game\\Lib\\site-packages\\pygame']
-5582 INFO: Extra DLL search directories (PATH): []
-6076 WARNING: Library not found: could not resolve 'libexpat.dll', dependency of 'C:\\Users\\Dusk_Wind\\.conda\\envs\\Game\\DLLs\\pyexpat.pyd'.
-6076 WARNING: Library not found: could not resolve 'libssl-3-x64.dll', dependency of 'C:\\Users\\Dusk_Wind\\.conda\\envs\\Game\\DLLs\\_ssl.pyd'.
-6076 WARNING: Library not found: could not resolve 'libcrypto-3-x64.dll', dependency of 'C:\\Users\\Dusk_Wind\\.conda\\envs\\Game\\DLLs\\_ssl.pyd'.
-6076 WARNING: Library not found: could not resolve 'libcrypto-3-x64.dll', dependency of 'C:\\Users\\Dusk_Wind\\.conda\\envs\\Game\\DLLs\\_hashlib.pyd'.
-6077 WARNING: Library not found: could not resolve 'ffi.dll', dependency of 'C:\\Users\\Dusk_Wind\\.conda\\envs\\Game\\DLLs\\_ctypes.pyd'.
-6098 INFO: Warnings written to C:\Users\Dusk_Wind\Desktop\Project\Dungeon Warriors\build\DungeonWarriors\warn-DungeonWarriors.txt
-6115 INFO: Graph cross-reference written to C:\Users\Dusk_Wind\Desktop\Project\Dungeon Warriors\build\DungeonWarriors\xref-DungeonWarriors.html
-6134 INFO: checking PYZ
-6143 INFO: Building because C:\Users\Dusk_Wind\Desktop\Project\Dungeon Warriors\rendering\renderer.py changed
-6143 INFO: Building PYZ (ZlibArchive) C:\Users\Dusk_Wind\Desktop\Project\Dungeon Warriors\build\DungeonWarriors\PYZ-00.pyz
-6309 INFO: Building PYZ (ZlibArchive) C:\Users\Dusk_Wind\Desktop\Project\Dungeon Warriors\build\DungeonWarriors\PYZ-00.pyz completed successfully.
-6318 INFO: checking PKG
-6320 INFO: Building because toc changed
-6320 INFO: Building PKG (CArchive) DungeonWarriors.pkg
-9348 INFO: Building PKG (CArchive) DungeonWarriors.pkg completed successfully.
-9355 INFO: Bootloader C:\Users\Dusk_Wind\.conda\envs\Game\Lib\site-packages\PyInstaller\bootloader\Windows-64bit-intel\runw.exe
-9355 INFO: checking EXE
-9358 INFO: Building because toc changed
-9358 INFO: Building EXE from EXE-00.toc
-9362 INFO: Copying bootloader EXE to C:\Users\Dusk_Wind\Desktop\Project\Dungeon Warriors\dist\DungeonWarriors.exe
-9369 INFO: Copying icon to EXE
-9372 INFO: Copying 0 resources to EXE
-9372 INFO: Embedding manifest in EXE
-9376 INFO: Appending PKG archive to EXE
-9399 INFO: Fixing EXE headers
-9571 INFO: Building EXE from EXE-00.toc completed successfully.
-9576 INFO: Build complete! The results are available in: C:\Users\Dusk_Wind\Desktop\Project\Dungeon Warriors\dist
+5314 INFO: Extra DLL search directories (AddDllDirectory): ['C:\\Users\\Dusk_Wind\\.conda\\envs\\Game\\Lib\\site-packages\\pygame']
+5314 INFO: Extra DLL search directories (PATH): []
+5834 WARNING: Library not found: could not resolve 'libexpat.dll', dependency of 'C:\\Users\\Dusk_Wind\\.conda\\envs\\Game\\DLLs\\pyexpat.pyd'.
+5834 WARNING: Library not found: could not resolve 'libssl-3-x64.dll', dependency of 'C:\\Users\\Dusk_Wind\\.conda\\envs\\Game\\DLLs\\_ssl.pyd'.
+5835 WARNING: Library not found: could not resolve 'libcrypto-3-x64.dll', dependency of 'C:\\Users\\Dusk_Wind\\.conda\\envs\\Game\\DLLs\\_ssl.pyd'.
+5835 WARNING: Library not found: could not resolve 'libcrypto-3-x64.dll', dependency of 'C:\\Users\\Dusk_Wind\\.conda\\envs\\Game\\DLLs\\_hashlib.pyd'.
+5835 WARNING: Library not found: could not resolve 'ffi.dll', dependency of 'C:\\Users\\Dusk_Wind\\.conda\\envs\\Game\\DLLs\\_ctypes.pyd'.
+5853 INFO: Warnings written to C:\Users\Dusk_Wind\Desktop\Project\Dungeon Warriors\build\DungeonWarriors\warn-DungeonWarriors.txt
+5872 INFO: Graph cross-reference written to C:\Users\Dusk_Wind\Desktop\Project\Dungeon Warriors\build\DungeonWarriors\xref-DungeonWarriors.html
+5890 INFO: checking PYZ
+5894 INFO: Building because C:\Users\Dusk_Wind\Desktop\Project\Dungeon Warriors\config.py changed
+5894 INFO: Building PYZ (ZlibArchive) C:\Users\Dusk_Wind\Desktop\Project\Dungeon Warriors\build\DungeonWarriors\PYZ-00.pyz
+6064 INFO: Building PYZ (ZlibArchive) C:\Users\Dusk_Wind\Desktop\Project\Dungeon Warriors\build\DungeonWarriors\PYZ-00.pyz completed successfully.
+6073 INFO: checking PKG
+6075 INFO: Building because toc changed
+6075 INFO: Building PKG (CArchive) DungeonWarriors.pkg
+9079 INFO: Building PKG (CArchive) DungeonWarriors.pkg completed successfully.
+9085 INFO: Bootloader C:\Users\Dusk_Wind\.conda\envs\Game\Lib\site-packages\PyInstaller\bootloader\Windows-64bit-intel\runw.exe
+9085 INFO: checking EXE
+9087 INFO: Building because toc changed
+9087 INFO: Building EXE from EXE-00.toc
+9092 INFO: Copying bootloader EXE to C:\Users\Dusk_Wind\Desktop\Project\Dungeon Warriors\dist\DungeonWarriors.exe
+9097 INFO: Copying icon to EXE
+9102 INFO: Copying 0 resources to EXE
+9102 INFO: Embedding manifest in EXE
+9105 INFO: Appending PKG archive to EXE
+9132 INFO: Fixing EXE headers
+9299 INFO: Building EXE from EXE-00.toc completed successfully.
+9304 INFO: Build complete! The results are available in: C:\Users\Dusk_Wind\Desktop\Project\Dungeon Warriors\dist
 pygame 2.6.1 (SDL 2.28.4, Python 3.11.15)
 Hello from the pygame community. https://www.pygame.org/contribute.html
-BUILD_EXIT=0 

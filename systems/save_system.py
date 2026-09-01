@@ -158,6 +158,8 @@ def _serialize_player(player: Player) -> dict:
         "melee_weapon": player.melee_weapon.name if player.melee_weapon else None,
         "ranged_weapon": player.ranged_weapon.name if player.ranged_weapon else None,
         "armor": player.armor.name if player.armor else None,
+        # V1.0.6: 生命上限惩罚乘数（楼层重置/退出重进累积扣除）
+        "max_hp_mult": player.max_hp_mult,
     }
 
 
@@ -200,6 +202,12 @@ def _deserialize_player(data: dict) -> Player:
                             if isinstance(raw_sl, dict) else {})
     bl = data.get("_burn_level")
     player._burn_level = int(bl) if isinstance(bl, (int, float)) and bl > 0 else 2
+
+    # V1.0.6: 生命上限惩罚乘数（防御式: 仅接受 (0,1] 的浮点, 缺失/非法回退 1.0=无惩罚）
+    mhm = data.get("max_hp_mult")
+    if isinstance(mhm, (int, float)):
+        mhm_f = float(mhm)
+        player.max_hp_mult = mhm_f if 0.0 < mhm_f <= 1.0 else 1.0
 
     melee_name = data.get("melee_weapon")
     ranged_name = data.get("ranged_weapon")

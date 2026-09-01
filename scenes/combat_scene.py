@@ -1,5 +1,5 @@
 """
-Dungeon Warriors V1.0.5.21 — 战斗场景（核心玩法，平衡性重做）
+Dungeon Warriors V1.0.6.2 — 战斗场景（核心玩法，平衡性重做）
 V1.0.5 多房间楼层架构、墙壁传送门系统
 """
 
@@ -26,6 +26,7 @@ from config import (
     CHEST_DROP_EQUIP_WEIGHTS, CHEST_DROP_POTION_WEIGHTS, CHEST_DROP_BREAD_WEIGHTS,
     TRIAL_SPAWNER_DROP_POTIONS,
     TREASURE_ROOM_MAX_POTIONS, TREASURE_ROOM_EQUIP_MAX_TIER,
+    MAX_HP_PENALTY_RESET,
     SPECIAL_TREASURE_ROOM_MIN_POTIONS,
 )
 from entities.player import Player
@@ -692,6 +693,8 @@ class CombatScene:
             self._reset_countdown -= dt
             if self._reset_countdown <= 0:
                 self._reset_countdown = -1.0
+                # V1.0.6: 手动重置 = 楼层重置, 扣除 10% 生命上限
+                self.player.apply_max_hp_penalty(MAX_HP_PENALTY_RESET)
                 # 手动重置时清除当前楼层缓存，重新生成地图
                 if self.current_floor in self._floor_layout_cache:
                     del self._floor_layout_cache[self.current_floor]

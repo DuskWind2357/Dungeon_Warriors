@@ -13,6 +13,7 @@ from config import (
     WINDOW_WIDTH, WINDOW_HEIGHT, FPS, COLOR_BG,
     MAX_REVIVES, REVIVE_COUNTDOWN_SEC, GAME_OVER_DELAY_SEC,
     AUTO_DESTROY_LOW_LEVEL_GEAR,
+    MAX_HP_PENALTY_RESET, MAX_HP_PENALTY_REENTER,
 )
 from entities.player import Player
 from systems.revive_system import ReviveSystem
@@ -139,6 +140,10 @@ class Game:
             # V1.0.5.9 修复: auto_destroy 为全局设置, 以设置界面为准,
             # 不再被存档旧值覆盖（修复"打开后开始游戏自动关闭"的问题）
             self.audio.set_bgm_enabled(data.get("music_enabled", True))
+            # V1.0.6.1: 战斗中途退出后重新进入（楼层不重置）→ 扣除 5% 生命上限
+            # 覆盖 combat（战斗中退出）与 reward（奖励界面退出）两种中途状态
+            if data.get("scene_state") in ("combat", "reward"):
+                self.player.apply_max_hp_penalty(MAX_HP_PENALTY_REENTER)
             # 确保玩家有武器
             if self.player.melee_weapon is None:
                 self.player.melee_weapon = WEAPON_BY_NAME["铜剑"]
@@ -187,6 +192,8 @@ class Game:
         # 清除楼层布局缓存（死亡后重新生成地图）
         self.floor_layout_cache.clear()
         if self.revive_system.consume_revive():
+            # V1.0.6: 死亡复活 = 楼层重置, 扣除 10% 生命上限（仅成功消耗复活触发）
+            self.player.apply_max_hp_penalty(MAX_HP_PENALTY_RESET)
             self.scene = "death"
         else:
             delete_save()

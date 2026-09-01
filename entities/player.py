@@ -10,6 +10,7 @@ from config import (
     STRENGTH_POTION_DURATION, INVIS_POTION_DURATION,
     SWIFT_POTION_DURATION, BREAD_HEAL_DURATION, BREAD_HEAL_PER_SEC,
     POWER_POTION_MULT, SWIFT_POTION_MULT,
+    MAX_HP_PENALTY_FLOOR,
 )
 from entities.item import Weapon, Armor
 
@@ -32,6 +33,9 @@ class Player:
     boss_kills: int = 0        # 头目击杀数（生命+10/15/20、攻击+9%/12%/15% 按难度）
     elite_kills: int = 0       # 精英击杀数（生命+2/3/5、攻击+1% 按难度）
     difficulty: str = "easy"   # V1.0.5.10: 成长参数按难度取值
+
+    # V1.0.6: 生命上限惩罚乘数（楼层重置×0.9 / 退出重进×0.95 递乘, 保底50%）
+    max_hp_mult: float = 1.0
 
     # 装备（双武器槽：近战 + 远程）
     melee_weapon: Weapon | None = None
@@ -72,6 +76,8 @@ class Player:
         """HP（仅此处取整）。V1.0.5.10 计算规则：
         玩家HP = (基础生命值 + 楼层生命加成 + 精英/头目击杀生命加成) × (1+护甲倍率)
         生命加成按难度：每层+5/8/10，每精英+2/3/5，每头目+10/15/20
+        V1.0.6: 再乘生命上限惩罚系数 max_hp_mult（楼层重置×0.9/退出重进×0.95 递乘），
+        保底 = 无惩罚上限 × MAX_HP_PENALTY_FLOOR(50%)。
         """
         if floor is None:
             floor = self.current_floor
@@ -82,7 +88,22 @@ class Player:
                    + self.boss_kills * g["player_hp_per_boss"])
         if self.armor and self.armor.hp_bonus_pct > 0:
             hp *= (1 + self.armor.hp_bonus_pct)
+        full = hp  # 无惩罚生命上限
+        # V1.0.6 生命上限惩罚（保底 50%）
+        if self.max_hp_mult < 1.0:
+            hp = max(hp * self.max_hp_mult, full * MAX_HP_PENALTY_FLOOR)
         return round(hp)
+
+    def apply_max_hp_penalty(self, ratio: float) -> None:
+        """V1.0.6: 扣除当前生命上限的 ratio（楼层重置 0.10 / 退出重进 0.05）。
+        累乘递减；保底=无惩罚上限的50%。扣后强制当前HP不超过新上限。
+        """
+        if not (0.0 < ratio < 1.0):
+            return
+        self.max_hp_mult = self.max_hp_mult * (1.0 - ratio)
+        new_max = self.total_max_hp()
+        if self.current_hp > new_max:
+            self.current_hp = new_max
 
     def base_attack_mult(self) -> float:
         """基础攻击倍率（V1.0.5.10）：
