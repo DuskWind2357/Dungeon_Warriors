@@ -295,6 +295,12 @@ class Game:
                     self.player, self.backpack, self.audio
                 )
                 self.scene = "backpack"
+            elif result == "victory":
+                # HUD 测试 BUG 修复: 近战攻击击杀高塔之主时,
+                # handle_event 返回 "victory", 必须与 _dispatch_update 一致进入胜利场景
+                from scenes.victory_scene import VictoryScene
+                self.victory_scene = VictoryScene()
+                self._on_victory()
 
         elif self.scene == "backpack" and self.backpack_scene:
             result = self.backpack_scene.handle_event(event)

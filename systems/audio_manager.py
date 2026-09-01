@@ -253,7 +253,9 @@ class AudioManager:
             dp = resource_path(os.path.join("sounds", "玩家", "杀"))
             if os.path.exists(dp):
                 self._sounds[key] = {"杀": self._load_files(dp)}
-        self._play_pool(key, "杀", "instakill")
+        # BUG 修复: 移除 0.05s 冷却(cd_tag) —— 杀戮之弩一次射击多枚/多目标连续斩杀时,
+        # 冷却会吞掉后续斩杀音效, 导致"有时不播放"; 斩杀死目标每次都播放
+        self._play_pool(key, "杀")
 
     def set_volume(self, v): self._volume = max(0, min(1, v))
     @property

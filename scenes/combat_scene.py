@@ -49,6 +49,7 @@ from systems.audio_manager import AudioManager
 from rendering.renderer import (
     draw_map, draw_player, draw_monster, draw_drops, draw_hud, draw_toast,
     draw_slash_effects, draw_v_slashes,
+    draw_boss_hp_bar,
     get_bold_font,
     get_bold_hud_font,
 )
@@ -2357,6 +2358,16 @@ class CombatScene:
         draw_player(render, self.player)
         draw_hud(render, self.player, self.current_floor,
                  self.revive_system.revives_remaining, get_bold_hud_font())
+        # HUD 测试: 顶部BOSS血条（高塔之主 + 头目; 仅BOSS战斗房间且BOSS存活时显示）
+        is_boss_room = False
+        if (self.current_room is not None
+                and self.current_room.room_type == RoomType.BOSS_BATTLE):
+            is_boss_room = True
+        fb = next((m for m in self.monsters if m.monster_type == 'final_boss'), None)
+        hbs = [m for m in self.monsters if m.monster_type == 'head_boss']
+        if is_boss_room and (fb is not None or hbs):
+            draw_boss_hp_bar(render, final_boss=fb, head_bosses=hbs,
+                             font=get_bold_hud_font())
         # 倒计时 toast
         offset = 0
         if self._spawn_toast:

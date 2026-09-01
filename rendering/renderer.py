@@ -68,6 +68,14 @@ BOSS_PHASE_ICONS: dict[int, str] = {
     3: "icon/NecromancerFace.webp",
 }
 
+# ── HUD 测试: 顶部BOSS血条样式常量 ──
+BOSS_BAR_WIDTH = 480            # 高塔之主血条宽度（px）
+HEAD_BOSS_BAR_WIDTH = 160       # 头目BOSS血条宽度（高塔之主的 1/3）
+BOSS_BAR_HEIGHT = 14            # 血条高度（px）
+BOSS_BAR_BG = (50, 12, 12)      # 血条底色（深红）
+BOSS_BAR_BORDER = (25, 25, 25)  # 血条描边色
+BOSS_BAR_NAME_COLOR = (235, 235, 235)   # BOSS名称颜色
+
 def _load_icon(filename: str, size: int) -> pygame.Surface | None:
     try:
         path = resource_path(filename)
@@ -476,7 +484,8 @@ def _draw_monster_impl(screen: pygame.Surface, monster: Monster) -> None:
         pygame.draw.rect(screen, (255, 255, 255, 60), rect, width=1, border_radius=4)
 
     # V1.0.5.12 HP 条（宝箱不显示血条；V1.0.5.12 补丁: 试炼刷怪笼要求显示）
-    if monster.monster_type != "chest":
+    # HUD 测试: 高塔之主(final_boss)与头目(head_boss)改用屏幕顶部BOSS血条，不再绘制头顶小血条
+    if monster.monster_type not in ("chest", "final_boss", "head_boss"):
         bar_width = TILE_SIZE
         bar_height = 4
         bar_x = x - bar_width // 2
@@ -485,11 +494,13 @@ def _draw_monster_impl(screen: pygame.Surface, monster: Monster) -> None:
                           monster.hp_ratio, COLOR_HP_BAR)
 
     # 怪物名称（深灰色，不加粗）
-    font_small = _get_small_font()
-    if font_small:
-        name_surf = font_small.render(monster.name, True, COLOR_HUD)
-        name_rect = name_surf.get_rect(center=(x, y + half + 12))
-        screen.blit(name_surf, name_rect)
+    # HUD 测试: 高塔之主(final_boss)与头目(head_boss)名称由顶部BOSS血条展示，头顶不再重复绘制
+    if monster.monster_type not in ("final_boss", "head_boss"):
+        font_small = _get_small_font()
+        if font_small:
+            name_surf = font_small.render(monster.name, True, COLOR_HUD)
+            name_rect = name_surf.get_rect(center=(x, y + half + 12))
+            screen.blit(name_surf, name_rect)
 
 
 def draw_drops(screen: pygame.Surface,
@@ -608,6 +619,81 @@ def draw_hud(screen: pygame.Surface, player: Player,
             se_surf = font.render(se_text, True, se_colors.get(se_type, (255, 100, 100)))
             screen.blit(se_surf, (screen.get_width() - se_surf.get_width() - 10, buff_y))
             buff_y += 18
+
+
+def _draw_boss_bar(screen: pygame.Surface, boss: Monster, font: pygame.font.Font,
+                   bar_center_x: int, bar_y: int, bar_width: int,
+                   show_name: bool) -> None:
+    """绘制单条BOSS血条（中心 x 由调用方决定，用于单/双/分级布局）
+    - 名称显示在血条上方居中（仅 show_name 时）
+    - 空指针防护（宪章第六章）: 传入前已确保 boss 存活
+    """
+    if screen is None or boss is None or not boss.is_alive():
+        return
+    if show_name:
+        name_surf = font.render(boss.name, True, BOSS_BAR_NAME_COLOR)
+        name_rect = name_surf.get_rect(center=(bar_center_x, bar_y - 14))
+        screen.blit(name_surf, name_rect)
+
+    bar_x = bar_center_x - bar_width // 2
+    # hp_ratio 钳制 0~1, 防御异常数值
+    ratio = max(0.0, min(1.0, float(boss.hp_ratio)))
+    draw_progress_bar(screen, bar_x, bar_y, bar_width, BOSS_BAR_HEIGHT,
+                      ratio, COLOR_HP_BAR, bg_color=BOSS_BAR_BG)
+    pygame.draw.rect(screen, BOSS_BAR_BORDER,
+                     (bar_x - 1, bar_y - 1, bar_width + 2, BOSS_BAR_HEIGHT + 2),
+                     width=2, border_radius=2)
+
+
+def draw_boss_hp_bar(screen: pygame.Surface,
+                     final_boss: Monster | None = None,
+                     head_bosses: list[Monster] | None = None,
+                     font: pygame.font.Font | None = None,
+                     bar_y: int | None = None) -> None:
+    """HUD 测试: 顶部BOSS血条（参照设计图）
+    - 单/多头目 + 高塔之主综合布局:
+      * 高塔之主(final_boss, 480px)存在且存活 → 顶部居中, 自带名称
+      * 头目(HEAD_BOSS, 160px=高塔之主1/3)存在 → 单只居中 / 两只并排对称
+      * 高塔之主与头目同时存在 → 头目血条显示在高塔之主血条下方
+    - 空指针防护（宪章第六章）: screen 为 None 或所有 BOSS 均无效/死亡时不绘制
+    """
+    if screen is None:
+        return
+    if font is None:
+        font = _get_default_font()
+
+    screen_w = screen.get_width()
+    center_x = screen_w // 2
+
+    # 存活 BOSS 名单（防御: 过滤非存活/死亡）
+    fb = final_boss if final_boss is not None and final_boss.is_alive() else None
+    hbs = [m for m in (head_bosses or []) if m is not None and m.is_alive()]
+    if fb is None and not hbs:
+        return
+
+    base_y = 78 if bar_y is None else int(bar_y)  # 高塔之主血条位置(下移1格=48px, 原30)
+
+    # 法线: 有高塔之主 → 顶部绘制其血条, 头目在下方一行
+    # V1.0.6 HUD 调整: 高塔之主召唤头目时, 头目血条再下移 0.5 格(=24px) 与高塔之主血条拉开间距
+    if fb is not None:
+        _draw_boss_bar(screen, fb, font, center_x, base_y,
+                       BOSS_BAR_WIDTH, show_name=True)
+        head_y = base_y + BOSS_BAR_HEIGHT + 10 + TILE_SIZE // 2
+    else:
+        head_y = base_y
+
+    # 头目血条: 单只居中 / 两只并排对称（每个头目都显示名称，含高塔之主在场时）
+    if hbs:
+        if len(hbs) == 1:
+            _draw_boss_bar(screen, hbs[0], font, center_x, head_y,
+                           HEAD_BOSS_BAR_WIDTH, show_name=True)
+        else:
+            _draw_boss_bar(screen, hbs[0], font,
+                           center_x - HEAD_BOSS_BAR_WIDTH // 2 - 6, head_y,
+                           HEAD_BOSS_BAR_WIDTH, show_name=True)
+            _draw_boss_bar(screen, hbs[1], font,
+                           center_x + HEAD_BOSS_BAR_WIDTH // 2 + 6, head_y,
+                           HEAD_BOSS_BAR_WIDTH, show_name=True)
 
 
 def draw_toast(screen: pygame.Surface, toast: dict | None,
