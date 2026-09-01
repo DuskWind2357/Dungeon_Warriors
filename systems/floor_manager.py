@@ -67,7 +67,8 @@ class Room:
     monster_positions: list[tuple[float, float]] = field(default_factory=list)
     unlocked: bool = False   # 特殊宝藏房间：是否已用钥匙解锁（V1.0.5.6）
     chests: list[tuple[int, int]] = field(default_factory=list)  # V1.0.5.12 宝箱位置
-    spawner_pos: tuple[int, int] | None = None  # V1.0.5.12 试炼刷怪笼位置
+    spawner_pos: tuple[int, int] | None = None  # V1.0.5.12 试炼刷怪笼位置（中央，兼容保留）
+    spawner_positions: list[tuple[int, int]] = field(default_factory=list)  # V1.0.5.18 全部试炼刷怪笼位置（中央+角落）
     consumable_positions: list[tuple[int, int]] = field(default_factory=list)  # V1.0.5.12 消耗品位置
     equip_positions: list[tuple[int, int]] = field(default_factory=list)  # V1.0.5.12 装备位置
 
@@ -201,7 +202,7 @@ def generate_floor(floor_num: int = 1, difficulty: str = "easy") -> FloorLayout:
 
     for rtype in branch_types:
         room = Room(room_idx=len(rooms), room_type=rtype)
-        _generate_room_grid(room)
+        _generate_room_grid(room, floor_num)
         rooms.append(room)
 
     _connect_rooms_with_portals(rooms, difficulty=difficulty)
@@ -313,9 +314,12 @@ def _generate_special_treasure_room(room: Room) -> None:
             room.equip_positions.append(walkable[idx])
 
 
-def _generate_room_grid(room: Room) -> None:
+def _generate_room_grid(room: Room, floor_num: int = 1) -> None:
     """为单个房间生成20×15网格
     值: 0=地板, 1=墙壁, 2=出生点, 3=下一楼层传送门, 4=陷阱, 5=房间传送门, 6=试炼刷怪笼
+    V1.0.5.18 副本试炼刷怪笼按楼层分布：
+      1-9层  / 11-19层 / 21-29层 正中央均 1 个；
+      11-19层 四个角落随机生成 2 个；21-29层 四个角落各 1 个。
     """
     grid = [[1] * MAP_COLS for _ in range(MAP_ROWS)]
 
@@ -330,11 +334,33 @@ def _generate_room_grid(room: Room) -> None:
         grid[sy][sx] = 2
         room.spawn_pos = (sx, sy)
 
-    # V1.0.5.12 副本房间：中央放置试炼刷怪笼
+    # V1.0.5.12 / V1.0.5.18 副本房间：中央 1 个 + 高楼层额外角落刷怪笼
     if room.room_type == RoomType.DUNGEON:
         cx, cy = MAP_COLS // 2, MAP_ROWS // 2
-        grid[cy][cx] = 6  # 6=试炼刷怪笼
-        room.spawner_pos = (cx, cy)
+        # 四个角落（向内偏移两格，避开墙体与房间传送门边缘）
+        corners = [(2, 2),
+                   (MAP_COLS - 3, 2),
+                   (2, MAP_ROWS - 3),
+                   (MAP_COLS - 3, MAP_ROWS - 3)]
+
+        extra = 0
+        if 11 <= floor_num <= 19:
+            extra = 2                      # 四角随机 2 个
+        elif 21 <= floor_num <= 29:
+            extra = 4                      # 四角各 1 个
+        # 1-9 层（及 BOSS 楼层 10/20/30 无副本）extra = 0，仅中央
+
+        chosen = corners[:]
+        if extra < len(corners):
+            random.shuffle(chosen)
+            chosen = chosen[:extra]
+
+        positions = [(cx, cy)] + chosen
+        for col, row in positions:
+            grid[row][col] = 6  # 6=试炼刷怪笼
+
+        room.spawner_positions = positions
+        room.spawner_pos = (cx, cy)  # 中央主刷怪笼（兼容保留）
 
     room.grid = grid
 
@@ -353,8 +379,8 @@ def _add_random_walls(grid: list[list[int]], room: Room,
             if room.room_type == RoomType.SPAWN:
                 if abs(col - cx) < 3 and abs(row - cy) < 3:
                     continue
-            # 不在传送门位置放墙
-            if grid[row][col] in (2, 3, 5):
+            # 不在传送门/试炼刷怪笼位置放墙（V1.0.5.18: 6=刷怪笼，跳过）
+            if grid[row][col] in (2, 3, 5, 6):
                 continue
             grid[row][col] = 1
             break
@@ -552,11 +578,9 @@ def spawn_monsters_for_room(room: Room, floor_num: int,
     atk_scale = diff_mod["atk_scale_per_floor"]
     elite_extra_mult = diff_mod["elite_extra_mult"]
 
-    # BOSS楼层的出生点/增强战斗房间：按第一层标准刷怪（V1.0.5.6）
+    # V1.0.5.14 BUG修复: BOSS楼层非BOSS房间杂兵按真实楼层缩放数值
+    # （原逻辑将出生点/增强战斗房强制按第1层, 导致10/20/30层杂兵数值不随楼层成长）
     actual_floor = floor_num
-    if room.room_type in (RoomType.SPAWN, RoomType.ENHANCED_BATTLE):
-        if get_floor_type(floor_num) in ("boss", "final_boss"):
-            actual_floor = 1
 
     # V1.0.5.10 线性缩放（最新版）: 生物HP/ATK = 初始 × (1 + 难度倍率 × (floor-1))
     # 攻击冷却不再随楼层缩放（V1.0.5.10 移除）
@@ -666,36 +690,49 @@ def spawn_monsters_for_room(room: Room, floor_num: int,
     return monsters
 
 
-def spawn_trial_spawner(room: Room, floor_num: int, difficulty: str = "easy") -> Monster | None:
-    """V1.0.5.12 为副本房间生成试炼刷怪笼
-    血量 = 600 + 30 × (Floor-1)，索敌范围1200，无攻击力，不可移动
+def spawn_trial_spawners(room: Room, floor_num: int, difficulty: str = "easy") -> list[Monster]:
+    """V1.0.5.12 / V1.0.5.18 为副本房间生成试炼刷怪笼
+    血量 = 600 + 30 × (Floor-1)，索敌范围12格（TRIAL_SPAWNER_DETECT_TILES），无攻击力，不可移动
+    V1.0.5.18 数量按楼层：1-9层 中央1个；11-19层 中央1+四角随机2；21-29层 中央1+四角各1
     """
-    if room.room_type != RoomType.DUNGEON or room.spawner_pos is None:
-        return None
-    
-    col, row = room.spawner_pos
-    px = col * TILE_SIZE + TILE_SIZE // 2
-    py = row * TILE_SIZE + TILE_SIZE // 2
-    
-    # 计算血量：600 + 30 × (Floor-1)
-    hp = TRIAL_SPAWNER_BASE_HP + TRIAL_SPAWNER_HP_PER_FLOOR * (floor_num - 1)
-    
-    return Monster(
-        name=TRIAL_SPAWNER["name"],
-        monster_type="trial_spawner",
-        hp=hp,
-        max_hp=hp,
-        attack=0,
-        attack_range=0,
-        attack_cooldown=TRIAL_SPAWNER["cd"],
-        speed=0,
-        x=float(px),
-        y=float(py),
-        detect_range=TRIAL_SPAWNER["detect"],
-        immobile=True,
-        spawn_interval=TRIAL_SPAWNER["spawn_interval"],
-        spawn_timer=TRIAL_SPAWNER["spawn_interval"]
-    )
+    if room.room_type != RoomType.DUNGEON:
+        return []
+
+    # 优先使用布局阶段记录的全部位置；缺失时回退到中央单刷怪笼
+    positions = list(room.spawner_positions)
+    if not positions and room.spawner_pos is not None:
+        positions = [room.spawner_pos]
+    if not positions:
+        return []
+
+    spawners = []
+    for col, row in positions:
+        px = col * TILE_SIZE + TILE_SIZE // 2
+        py = row * TILE_SIZE + TILE_SIZE // 2
+        hp = TRIAL_SPAWNER_BASE_HP + TRIAL_SPAWNER_HP_PER_FLOOR * (floor_num - 1)
+        spawners.append(Monster(
+            name=TRIAL_SPAWNER["name"],
+            monster_type="trial_spawner",
+            hp=hp,
+            max_hp=hp,
+            attack=0,
+            attack_range=0,
+            attack_cooldown=TRIAL_SPAWNER["cd"],
+            speed=0,
+            x=float(px),
+            y=float(py),
+            detect_range=TRIAL_SPAWNER["detect"],
+            immobile=True,
+            spawn_interval=TRIAL_SPAWNER["spawn_interval"],
+            spawn_timer=TRIAL_SPAWNER["spawn_interval"]
+        ))
+    return spawners
+
+
+# V1.0.5.18 兼容别名：旧单刷怪笼接口（返回中央第一个刷怪笼，无则 None）
+def spawn_trial_spawner(room: Room, floor_num: int, difficulty: str = "easy") -> Monster | None:
+    spawners = spawn_trial_spawners(room, floor_num, difficulty)
+    return spawners[0] if spawners else None
 
 
 def spawn_chests(room: Room) -> list[Monster]:

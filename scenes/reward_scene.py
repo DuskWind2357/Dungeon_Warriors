@@ -332,15 +332,7 @@ class RewardScene:
             f"第 {self.cleared_floor} 层 通关", True, COLOR_TEXT)
         screen.blit(floor_text, floor_text.get_rect(center=(cx, 170)))
 
-        # 背包容量警告
-        from systems.inventory import count_empty_slots
-        empty = count_empty_slots(self.backpack)
-        needed = self._needed_slots() if self.selected >= 0 else 1
-        if empty < needed:
-            warn = get_font(16).render(
-                f"⚠ 背包空间不足！(空位:{empty}, 需要:{needed})",
-                True, (255, 100, 100))
-            screen.blit(warn, warn.get_rect(center=(cx, 210)))
+        # V1.0.5.16: 移除老版本「背包空间不足」红字提示（空位不足时仅禁止确认，不再显示文字）
 
         # 按钮
         for i, rect in enumerate(self.buttons):
@@ -370,10 +362,6 @@ class RewardScene:
             pygame.draw.rect(screen, COLOR_BUTTON_BORDER, self.confirm_btn, width=2, border_radius=4)
             cfm = font_btn.render("确认选择", True, COLOR_BUTTON_TEXT)
             screen.blit(cfm, cfm.get_rect(center=self.confirm_btn.center))
-            # 空间不足禁止确认提示（红色）
-            if self.blocked_text:
-                blk = get_font(16).render(self.blocked_text, True, (255, 60, 60))
-                screen.blit(blk, blk.get_rect(center=(cx, self.confirm_btn.bottom + 18)))
 
         # 神秘奖励揭晓
         if self.confirmed and self.revealed_text:

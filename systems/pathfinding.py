@@ -86,7 +86,12 @@ def _line_clear(grid: list[list[int]],
     sy = 1 if y0 < y1 else -1
     err = dx - dy
     cx, cy = x0, y0
+    rows = len(grid)
+    cols = len(grid[0]) if rows else 0
     while cx != x1 or cy != y1:
+        # 边界防护：越出网格（怪物/玩家坐标异常）视为有遮挡，不崩溃
+        if not (0 <= cy < rows and 0 <= cx < cols):
+            return False
         if grid[cy][cx] in (1, 5):  # 墙壁或传送门遮挡视线
             return False
         e2 = 2 * err

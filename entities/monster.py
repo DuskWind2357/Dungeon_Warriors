@@ -74,6 +74,10 @@ class Monster:
     spawn_interval: float = 0.0         # 召唤间隔（秒，0=不召唤）
     ambient_timer: float = 0.0          # 环境音计时器（试炼刷怪笼专用）
 
+    # V1.0.5.19 精英/首领技能冷却（所有怪物统一默认 0.0；
+    # 首领号令等运行时召唤路径若不显式初始化，技能判断 monster.skill_cd 会 AttributeError 崩溃）
+    skill_cd: float = 0.0
+
     def take_damage(self, damage: int, is_ranged: bool = False) -> bool:
         """受到伤害（含减免/单次上限/每秒上限/锁血），返回是否死亡"""
         # 计算伤害减免

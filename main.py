@@ -204,6 +204,9 @@ class Game:
 
     def _on_victory(self) -> None:
         """通关胜利: 清除进度并存档已通关标记（V1.0.5.9）"""
+        # V1.0.5.20: 击败高塔之主瞬间，奖励选择界面BGM以最高优先级接管音乐通道，
+        # 立即覆盖高塔之主战BGM（pygame.mixer.music.load/play 会中断当前BGM）。
+        self.audio.play_reward_bgm()
         mark_game_completed()
         self.floor_layout_cache.clear()  # 通关后清空楼层布局缓存
         self.scene = "victory"

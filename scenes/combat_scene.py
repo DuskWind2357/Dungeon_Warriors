@@ -1,5 +1,5 @@
 """
-Dungeon Warriors V1.0.5.13 — 战斗场景（核心玩法，平衡性重做）
+Dungeon Warriors V1.0.5.21 — 战斗场景（核心玩法，平衡性重做）
 V1.0.5 多房间楼层架构、墙壁传送门系统
 """
 
@@ -38,7 +38,7 @@ from systems.combat import (
 from systems.inventory import add_item, consume_item
 from systems.floor_manager import (
     generate_floor, spawn_monsters_for_room, spawn_monsters_boss,
-    spawn_trial_spawner, spawn_chests,
+    spawn_trial_spawner, spawn_trial_spawners, spawn_chests,
     get_floor_type, get_theme, place_traps, FloorLayout, Room, RoomType,
     head_boss_floor_boost,
 )
@@ -176,6 +176,7 @@ class CombatScene:
         self._pause_confirm_reset: bool = False
         self._reset_countdown: float = -1.0
         self._melee_last_used_time: float = 0.0
+        self._ranged_last_used_time: float = 0.0   # 远程武器最后出招时间（机械弩过热计数 3 秒重置用）
         self._last_esc_time: float = 0.0
         self._floor_clearing: bool = False
 
@@ -208,7 +209,12 @@ class CombatScene:
         # V1.0.5 根据楼层类型生成地图
         # V1.0.5.6：BOSS楼层同为多房间架构（出生点+分支），统一走多房间生成
         if self.current_floor in self._floor_layout_cache:
-            self.floor_layout, self.room_cleared = self._floor_layout_cache[self.current_floor]
+            # V1.0.5.17: 仅保留地图结构（布局/陷阱格），房间清怪状态全部重置刷新——
+            # 中途返回主菜单再继续（或同楼层复活重建场景）时，怪物/宝箱/刷怪笼/掉落
+            # 全部重新生成，不再恢复旧的 room_cleared（修复出生点房倒计时结束不刷怪 BUG26）
+            self.floor_layout, _ = self._floor_layout_cache[self.current_floor]
+            self.room_cleared = {}
+            self._floor_layout_cache[self.current_floor] = (self.floor_layout, self.room_cleared)
         else:
             self.floor_layout = generate_floor(self.current_floor, difficulty=self.difficulty)
             self.room_cleared = {}
@@ -250,12 +256,28 @@ class CombatScene:
         self._floor_portal_timer = -1.0
         self._unlock_block_travel = False
 
-        # V1.0.5 地狱陷阱
-        if self.current_floor >= 21 and self.current_room and self.floor_type not in ("boss", "final_boss"):
-            place_traps(self.current_room)
+        # V1.0.5 地狱陷阱（进入对应房间时布置; V1.0.5.14: 修复传送后陷阱不生效）
+        self._ensure_traps_for_room(self.current_room)
 
         # V1.0.5.10 按楼层切换 BGM
         self._update_floor_bgm()
+
+    def _ensure_traps_for_room(self, room) -> None:
+        """V1.0.5 地狱陷阱：地狱主题(21-29层)房间首次进入时布置
+        （10% 可行走地砖置为值4; 幂等——已布置过的房间不重复布置）
+        V1.0.5.14 修复: 原仅在 _init_floor 调用一次，传送进入战斗房间时陷阱从未放置
+        V1.0.5.16: 副本房间/宝藏室/特殊宝藏室不生成陷阱
+        """
+        if (room is None or self.current_floor < 21
+                or self.floor_type in ("boss", "final_boss")):
+            return
+        if room.room_type in (RoomType.DUNGEON, RoomType.TREASURE,
+                              RoomType.SPECIAL_TREASURE):
+            return
+        if getattr(room, '_traps_placed', False):
+            return
+        place_traps(room)
+        room._traps_placed = True
 
     def _current_floor_bgm_key(self) -> str | None:
         """V1.0.5.11 音乐播放规则: BOSS楼层非BOSS房间→boss_floor,
@@ -278,7 +300,7 @@ class CombatScene:
         if bgm_key == self._current_bgm_key:
             return
         self._current_bgm_key = bgm_key
-        if bgm_key:
+        if bgm_key is not None:
             self.audio.play_floor_bgm(bgm_key)
         else:
             self.audio.stop_bgm()
@@ -289,15 +311,16 @@ class CombatScene:
             return
         room_idx = self.current_room.room_idx
 
-        # 副本房间：生成试炼刷怪笼
+        # 副本房间：生成试炼刷怪笼（V1.0.5.18 起高楼层可多个）
         if self.current_room.room_type == RoomType.DUNGEON:
             if not self.room_cleared.get(room_idx, False):
-                spawner = spawn_trial_spawner(self.current_room, self.current_floor,
-                                              difficulty=self.difficulty)
-                if spawner:
-                    self.room_monsters[room_idx] = [spawner]
-                    self.monsters = [spawner]
-                    spawner.skill_cd = 0.0
+                spawners = spawn_trial_spawners(self.current_room, self.current_floor,
+                                                difficulty=self.difficulty)
+                if spawners:
+                    self.room_monsters[room_idx] = spawners
+                    self.monsters = list(spawners)
+                    for sp in spawners:
+                        sp.skill_cd = 0.0
             return
 
         # 宝藏室与特殊宝藏室：生成宝箱 + 地面物品
@@ -308,7 +331,7 @@ class CombatScene:
                 self.monsters = list(chests)
                 for c in chests:
                     c.skill_cd = 0.0
-            self._spawn_treasure_ground_items(self.current_room)
+                self._spawn_treasure_ground_items(self.current_room)
             return
 
         from config import DIFFICULTY_MODIFIERS
@@ -330,6 +353,7 @@ class CombatScene:
                     self.audio.play_boss_appear()
         elif not self.room_cleared.get(room_idx, False):
             # V1.0.5.8 为当前房间生成怪物（平衡性重做）
+            # V1.0.5.17: room_cleared 在场景重建时已全部重置（_init_floor），此处恢复原始判定
             monsters = spawn_monsters_for_room(
                 self.current_room,
                 self.current_floor, difficulty=self.difficulty,
@@ -444,7 +468,8 @@ class CombatScene:
                     self._paused = False
                     save_game(self.player, self.backpack, self.revive_system,
                               self.current_floor, self.monsters_killed,
-                              auto_destroy=getattr(self, 'auto_destroy', False))
+                              auto_destroy=getattr(self, 'auto_destroy', False),
+                              difficulty=self.difficulty)
                     return "menu"
 
                 # 楼层重置
@@ -500,7 +525,13 @@ class CombatScene:
                 'color': _fx_color,
                 't': 0.0,
             })
+            # 有效出招即刷新近战计时（含机械链锯：过热计数器 3 秒未攻击自动清零）
+            self._melee_last_used_time = 0.0
         hit_monsters = player_melee_attack(self.player, self.monsters)
+        # 机械链锯过热提示（_overheat_msg 由近战过热分支置位, 出招后立即消费）
+        if getattr(self.player, '_overheat_msg', False):
+            self.toasts.append(make_toast('锯刃过热！'))
+            self.player._overheat_msg = False
         if not hit_monsters:
             return None
         # 更新近战最后使用时间（V1.0.4 P3 连击归零）
@@ -623,19 +654,17 @@ class CombatScene:
         mouse_x, mouse_y = pygame.mouse.get_pos()
         projs = player_ranged_attack(self.player, mouse_x, mouse_y)
         if projs:
+            # 实际发射即刷新远程计时（机械弩过热计数器 3 秒未攻击自动清零）
+            self._ranged_last_used_time = 0.0
             for proj in projs:
                 self.projectiles.append(proj)
             # 多重箭提示（幻术师之弓）: 触发屏幕抖动+轻微闪烁 + 暴击音效
             if len(projs) > 1:
                 self.toasts.append(make_toast('多重箭！'))
                 self._trigger_shake_flash()
-                if self.audio: self.audio.play_crit()
             if self.audio:
                 self.audio.play_projectile('骷髅')
-            # 过热提示
-            if getattr(self.player, '_overheat_msg', False):
-                self.toasts.append(make_toast('锯刃过热！'))
-                self.player._overheat_msg = False
+            # 机械弩过热提示（机械链锯提示在近战出招后消费）
             if getattr(self.player, '_ranged_overheat_msg', False):
                 self.toasts.append(make_toast('机械弩过热！'))
                 self.player._ranged_overheat_msg = False
@@ -684,14 +713,24 @@ class CombatScene:
             if m.cooldown_remaining > 0:
                 m.cooldown_remaining = max(0, m.cooldown_remaining - dt)
 
-        # 连击冷却归零（V1.0.4 P3）: 3秒未使用近战武器时连击计数器归零
+        # 连击/过热计数归零（V1.0.4 P3 / V1.0.5.12）: 3秒未攻击自动重置
+        # - 近战：连击段数（剑/斧/矛/匕首）、combo_counter、机械链锯过热计数 _overheat_cnt
+        # - 远程：机械弩过热计数 _ranged_overheat_cnt
         self._melee_last_used_time += dt
+        self._ranged_last_used_time += dt
         if self._melee_last_used_time >= COMBO_RESET_SECONDS:
             if self.player.combo_counter > 0:
                 self.player.combo_counter = 0
             # V1.0.5.12 连击&战斗特效: 3秒未攻击连击段数自动重置（剑/斧/矛/匕首）
             if getattr(self.player, 'melee_stage', 0) > 0:
                 self.player.melee_stage = 0
+            # 机械链锯过热计数清零
+            if getattr(self.player, '_overheat_cnt', 0):
+                self.player._overheat_cnt = 0
+        if self._ranged_last_used_time >= COMBO_RESET_SECONDS:
+            # 机械弩过热计数清零
+            if getattr(self.player, '_ranged_overheat_cnt', 0):
+                self.player._ranged_overheat_cnt = 0
 
         # Buff
         self._update_buffs(dt)
@@ -790,6 +829,9 @@ class CombatScene:
         if self._trap_timer >= 1.0:
             self._trap_timer -= 1.0
             self.player.current_hp = max(0, self.player.current_hp - 5)
+            # V1.0.5.16: 踩陷阱每秒播放一次燃烧音效（燃烧buff生效时由 _update_buffs 统一播放，避免重叠）
+            if self.audio and not self.player.has_status('burn'):
+                self.audio.play_player_burn_tick()
 
     def _update_portals(self, dt: float) -> str | None:
         """V1.0.5 更新传送门交互逻辑（房间间传送）"""
@@ -893,11 +935,11 @@ class CombatScene:
         # 检查通往下一楼层的传送门（需要站在上面+楼层已清）
         if (self.floor_layout and self.floor_layout.floor_portal_pos is not None
                 and self.floor_layout.floor_portal_room_idx is not None
+                and self.current_room is not None
+                and self.current_room.room_idx == self.floor_layout.floor_portal_room_idx
                 and not self._floor_clearing):
             if self._is_floor_cleared():
                 # 通关后传送门常开（不再因玩家离开而关闭）
-                if not self.portal_active and self.audio:
-                    self.audio.play_portal_appear()
                 self.portal_active = True
 
                 fpx, fpy = self.floor_layout.floor_portal_pos
@@ -1009,6 +1051,9 @@ class CombatScene:
         self.current_room = target_room
         self.grid = target_room.grid
         self.monsters = self.room_monsters.get(target_room.room_idx, [])
+
+        # V1.0.5.14 修复: 地狱主题房间首次进入时布置陷阱（原仅楼层初始化时放置, 传送后无效）
+        self._ensure_traps_for_room(target_room)
 
         # 播放传送音效
         if self.audio:
@@ -1144,6 +1189,7 @@ class CombatScene:
                             weapon = proj.get('weapon')
                             # 循伤索敌（V1.0.5.11）：受远程攻击且玩家不在索敌范围内时,
                             # 索敌范围+50%（×1.5）, 持续3秒
+                            # 循伤索敌（V1.0.5.11）：隐身时依然生效——怪物向受伤来源方向移动但不锁定玩家
                             if monster.is_alive():
                                 if not is_in_range(monster.x, monster.y, self.player.x,
                                                    self.player.y,
@@ -1160,7 +1206,6 @@ class CombatScene:
                                 if weapon and weapon.instakill:
                                     self.toasts.append(make_toast('斩杀！'))
                                     self._trigger_shake_flash()
-                                    if self.audio: self.audio.play_instakill_easter_egg()
                                 result = self._on_monster_killed(monster)
                                 if result:
                                     return result
@@ -1214,7 +1259,8 @@ class CombatScene:
                 continue
 
             # 最终BOSS技能系统（V1.0.5.9）
-            if monster.monster_type == "final_boss":
+            # 隐身药水（安全区外）：BOSS 同样无法锁定玩家，技能/弹幕暂停
+            if monster.monster_type == "final_boss" and not (not self.in_spawn_zone and self.player.is_invisible()):
                 if getattr(monster, 'locked', False):
                     minions = getattr(monster, '_ultimate_minions', [])
                     if minions and all(not m.is_alive() for m in minions):
@@ -1238,8 +1284,13 @@ class CombatScene:
                                 self.audio.play_boss_summon()
                         monster.skill_cd = 15.0
                     else:
+                        # 弹幕与额外号令均为 50% 概率触发（号令还需满足发动条件）
                         if random.random() < 0.5:
                             self._boss_barrage(monster)
+                            if self._boss_summon_allowed():
+                                self._boss_summon(monster)
+                                if self.audio:
+                                    self.audio.play_boss_summon()
                         monster.skill_cd = 15.0 if monster.phase == 2 else 12.0
 
             # 索敌范围
@@ -1247,12 +1298,15 @@ class CombatScene:
             in_range = is_in_range(monster.x, monster.y, self.player.x, self.player.y, detect_range)
             dist_to_player = math.sqrt((self.player.x - monster.x) ** 2 + (self.player.y - monster.y) ** 2)
 
-            # 玩家离开索敌范围后重置 aggro（×1.25 容差）
-            if monster.aggro and not is_in_range(monster.x, monster.y, self.player.x, self.player.y, monster.get_current_detect_range() * 1.25):
+            # 隐身药水（安全区外）：怪物无法锁定玩家
+            hidden = (not self.in_spawn_zone) and self.player.is_invisible()
+
+            # 玩家离开索敌范围（×1.25 容差）或隐身时解除锁定（不解除循伤索敌：隐身时怪物仍会循伤向玩家方向移动）
+            if monster.aggro and (hidden or not is_in_range(monster.x, monster.y, self.player.x, self.player.y, monster.get_current_detect_range() * 1.25)):
                 monster.aggro = False
                 monster._path = None
 
-            if in_range and not monster.aggro and not self.in_spawn_zone and not self.player.is_invisible():
+            if in_range and not monster.aggro and not hidden:
                 monster.aggro = True
                 monster._path = None
 
@@ -1270,14 +1324,26 @@ class CombatScene:
                     self._move_with_astar(monster, None, wsteps, dt)
             else:
                 self._move_with_astar(monster, pixel_to_grid(self.player.x, self.player.y), current_speed, dt)
+
+            # 玩家在索敌范围内：靠近音效（3格内）；隐身时怪物无目标、不播音效
+            if in_range and not hidden:
+                if self.audio and dist_to_player <= TILE_SIZE * 3:
+                    self.audio.play_ambient(monster.name, id(monster))
+            # 隐身药水（安全区外）：无法锁定玩家，跳过技能/攻击/远程走位
+            if hidden:
+                continue
+
             # 技能触发
             can_skill = monster.hp < monster.max_hp
-            if can_skill and '精英僵尸' in monster.name and monster.skill_cd <= 0 and monster.hp < monster.max_hp:
-                heal = int(monster.max_hp * random.uniform(0.3, 0.5))
-                monster.hp = min(monster.max_hp, monster.hp + heal)
-                monster._healed_once = True
-                monster.skill_cd = 20.0
-                self.toasts.append(make_toast(f"{monster.name}发动了自我痊愈技能！"))
+            if can_skill and '精英僵尸' in monster.name and monster.skill_cd <= 0:
+                # 仅在血量首次低于 50% 时自愈一次（治疗 30%~50% 最大生命）
+                first_time = not getattr(monster, '_healed_once', False)
+                if first_time and monster.hp < monster.max_hp * 0.5:
+                    heal = int(monster.max_hp * random.uniform(0.3, 0.5))
+                    monster.hp = min(monster.max_hp, monster.hp + heal)
+                    monster._healed_once = True
+                    monster.skill_cd = 20.0
+                    self.toasts.append(make_toast(f"{monster.name}发动了自我痊愈技能！"))
             elif can_skill and '冰霜僵尸' in monster.name and monster.skill_cd <= 0 and dist_to_player > TILE_SIZE * 4:
                 self._fire_ice_bomb(monster)
                 monster.skill_cd = 10.0
@@ -1341,12 +1407,41 @@ class CombatScene:
                 monster._flame_waves = 3
                 monster._flame_timer = 0.0
                 monster._rooted = True
+                for _ in range(3):
+                    self._spawn_slime_child('中型岩浆史莱姆', monster, TILE_SIZE * 1.5)
                 monster.skill_cd = 15.0
                 self.toasts.append(make_toast(f"{monster.name}发动了浴火焚身技能！"))
 
             self._update_skill_states(monster, dt)
-            # 攻击
+            # 攻击（与原版攻击块 L1431–L1539 逐行对齐）
             if monster.ranged_attacker:
+                # ── 原版 L1432–L1469：远程怪走位 + 骷髅视线 ──
+                atk_px = monster.attack_range * TILE_SIZE
+                dist_p = math.sqrt((self.player.x - monster.x) ** 2 + (self.player.y - monster.y) ** 2)
+                is_skeleton = ('骷髅' in monster.name or '流髑' in monster.name)
+                has_line_of_sight = True
+                if is_skeleton:
+                    monster_grid = pixel_to_grid(monster.x, monster.y)
+                    player_grid = pixel_to_grid(self.player.x, self.player.y)
+                    from systems.pathfinding import _line_clear
+                    has_line_of_sight = _line_clear(self.grid, monster_grid, player_grid)
+                flee_px = max(TILE_SIZE * 1.2, atk_px * 0.6)
+                if dist_p > atk_px * 0.9:
+                    nx, ny = move_toward(monster.x, monster.y, self.player.x, self.player.y, monster.speed)
+                    if not self._collides_wall(nx, monster.y): monster.x = nx
+                    if not self._collides_wall(monster.x, ny): monster.y = ny
+                elif dist_p < flee_px:
+                    if monster.monster_type != 'final_boss':
+                        flee_spd = max(1.0, monster.speed * 0.5)
+                        nx, ny = move_toward(monster.x, monster.y, self.player.x, self.player.y, -flee_spd)
+                        if not self._collides_wall(nx, monster.y): monster.x = nx
+                        if not self._collides_wall(monster.x, ny): monster.y = ny
+                if dist_p < TILE_SIZE * 1 and monster.monster_type != 'final_boss':
+                    continue
+                if is_skeleton and not has_line_of_sight:
+                    self._move_with_astar(monster, pixel_to_grid(self.player.x, self.player.y), monster.speed, dt)
+                    continue
+                # ── 原版 L1470–L1517：远程开火 ──
                 if monster.cooldown_remaining <= 0:
                     dx = self.player.x - monster.x
                     dy = self.player.y - monster.y
@@ -1382,36 +1477,15 @@ class CombatScene:
                             elif '炎魔' in monster.name:
                                 proj['burn'] = 5.0; proj['burn_dmg'] = 9; proj['damage'] = 8; proj['burn_level'] = 3
                             if '流髑' in monster.name:
-                                proj['frost'] = 3.0
+                                proj['frost'] = 5.0
+                                proj['frost_level'] = 1
                             self.projectiles.append(proj)
-                        cd = 5.0 if '烈焰使者' in monster.name else (6.0 if '炎魔' in monster.name else 1.2)
+                        cd = 5.0 if ('烈焰使者' in monster.name or '炎魔' in monster.name) else 1.2
                         monster.cooldown_remaining = cd
                         if self.audio:
                             self.audio.play_projectile(monster.name)
             else:
-                # 近战移动 + 攻击
-                atk_px = monster.attack_range * TILE_SIZE
-                dist_p = math.sqrt((self.player.x - monster.x) ** 2 + (self.player.y - monster.y) ** 2)
-                is_skeleton = '骷髅' in monster.name
-                monster_grid = pixel_to_grid(monster.x, monster.y)
-                player_grid = pixel_to_grid(self.player.x, self.player.y)
-                from systems.pathfinding import _line_clear
-                has_line_of_sight = _line_clear(self.grid, monster_grid, player_grid)
-                flee_px = max(TILE_SIZE * 1.2, atk_px * 0.6)
-                if dist_p > atk_px * 0.9:
-                    nx, ny = move_toward(monster.x, monster.y, self.player.x, self.player.y, monster.speed)
-                    if not self._collides_wall(nx, monster.y): monster.x = nx
-                    if not self._collides_wall(monster.x, ny): monster.y = ny
-                elif dist_p < flee_px and monster.monster_type != 'final_boss':
-                    flee_spd = max(1.0, monster.speed * 0.5)
-                    nx, ny = move_toward(monster.x, monster.y, self.player.x, self.player.y, -flee_spd)
-                    if not self._collides_wall(nx, monster.y): monster.x = nx
-                    if not self._collides_wall(monster.x, ny): monster.y = ny
-                if dist_p < TILE_SIZE * 1 and monster.monster_type != 'final_boss':
-                    continue
-                if is_skeleton and not has_line_of_sight:
-                    self._move_with_astar(monster, pixel_to_grid(self.player.x, self.player.y), monster.speed, dt)
-                    continue
+                # ── 原版 L1518–L1539：近战攻击 ──
                 if monster_attack_player(monster, self.player):
                     if '中型岩浆史莱姆' in monster.name:
                         self.player.add_status('burn', 3.0, 7, level=2)
@@ -1523,6 +1597,9 @@ class CombatScene:
                             ranged_attacker=mdef.get('ranged', False),
                             speed=mdef['speed'] * MONSTER_SPEED_SCALE,
                             x=sx, y=sy, aggro=True)
+                # V1.0.5.19 修复：首领号令召唤怪必须初始化 skill_cd，
+                # 否则技能判断 monster.skill_cd 访问未定义属性导致 AttributeError 崩溃
+                m.skill_cd = 0.0
                 self.monsters.append(m)
         self.toasts.append(make_toast(f"{boss.name}发动了首领号令技能！"))
 
@@ -1796,10 +1873,13 @@ class CombatScene:
                 for _ in range(3): self._spawn_slime_child("小型史莱姆", monster)
 
     def _spawn_slime_child(self, name: str, parent: Monster, spawn_dist: float = 0) -> None:
-        """生成史莱姆子体，spawn_dist=0时随机10-40px"""
+        """生成史莱姆子体，spawn_dist=0时随机10-40px（属性按楼层缩放，与原版一致）"""
         from data.monsters import NORMAL_MONSTERS
         mdef = next((m for m in NORMAL_MONSTERS if m["name"] == name), None)
         if mdef is None: return
+        diff_mod = DIFFICULTY_MODIFIERS.get(self.difficulty, DIFFICULTY_MODIFIERS['easy'])
+        hp_mult = 1.0 + diff_mod['hp_scale_per_floor'] * (self.current_floor - 1)
+        atk_mult = 1.0 + diff_mod['atk_scale_per_floor'] * (self.current_floor - 1)
         for _ in range(10):
             angle = random.uniform(0, 2*math.pi)
             dist = spawn_dist if spawn_dist > 0 else random.uniform(10, 40)
@@ -1807,11 +1887,12 @@ class CombatScene:
             sy = parent.y + math.sin(angle)*dist
             if not self._collides_wall(sx, sy):
                 child = Monster(name=mdef["name"], monster_type="normal",
-                                hp=mdef["hp"], max_hp=mdef["hp"],
-                                attack=mdef["atk"], attack_range=mdef["range"],
-                                attack_cooldown=mdef["cd"],
+                                hp=int(mdef["hp"] * hp_mult), max_hp=int(mdef["hp"] * hp_mult),
+                                attack=int(mdef["atk"] * atk_mult),
+                                attack_range=mdef["range"], attack_cooldown=mdef["cd"],
                                 ranged_attacker=mdef.get("ranged", False),
-                                speed=mdef["speed"], x=sx, y=sy, aggro=True)
+                                speed=mdef["speed"] * MONSTER_SPEED_SCALE,
+                                x=sx, y=sy, aggro=True)
                 self.monsters.append(child)
                 return
 
@@ -1847,6 +1928,13 @@ class CombatScene:
                 self._add_drop(room_idx, (BREAD, mx + 5, my + 5))
             if random.random() < DROP_BOSS_POTION:
                 self._add_drop(room_idx, (random.choice(POTION_POOL), mx - 5, my + 5))
+
+        elif mtype == "chest":
+            self._chest_drop(monster)
+            return
+        elif mtype == "trial_spawner":
+            self._trial_spawner_drop(monster)
+            return
 
     def _drop_better_equip(self, monster: Monster) -> None:
         """头目掉落：玩家同类型装备满级或特殊时，掉落必为特殊（V1.0.4 P2）"""
@@ -1927,6 +2015,19 @@ class CombatScene:
         if not pool:
             return
 
+        rows = len(self.grid)
+        cols = len(self.grid[0]) if rows else 0
+        # 合法生成范围：留 1 格墙 padding，避免召唤怪越出房间网格（V1.0.5.18 角落刷怪笼朝外偏移会越界）
+        min_x, max_x = TILE_SIZE * 1.5, TILE_SIZE * (cols - 1.5)
+        min_y, max_y = TILE_SIZE * 1.5, TILE_SIZE * (rows - 1.5)
+
+        def _clamp_px(xx, yy):
+            if cols > 3:
+                xx = max(min_x, min(max_x, xx))
+            if rows > 3:
+                yy = max(min_y, min(max_y, yy))
+            return xx, yy
+
         for _ in range(count):
             mdef = random.choice(pool)
             angle = random.uniform(0, 2 * math.pi)
@@ -1936,6 +2037,8 @@ class CombatScene:
             if self._collides_wall(px, py):
                 px = spawner.x + random.uniform(-TILE_SIZE * 3, TILE_SIZE * 3)
                 py = spawner.y + random.uniform(-TILE_SIZE * 3, TILE_SIZE * 3)
+            # 钳制到房间网格内，防止角落刷怪笼朝外召唤导致怪物越界
+            px, py = _clamp_px(px, py)
             hp = int(mdef['hp'] * hp_mult)
             atk = int(mdef['atk'] * atk_mult)
             m = Monster(
@@ -2198,11 +2301,11 @@ class CombatScene:
 
     def _on_floor_clear(self) -> str | None:
         """V1.0.5 楼层通关"""
-        if self.current_floor >= 30:
+        if self.floor_type == 'final_boss':
             return "victory"
-        
+
         # 通关提示已在 _on_monster_killed 中显示（持续3秒）
-        
+
         # 清除全部 Buff
         self.player.buffs.clear()
         self.player.status_effects.clear()
@@ -2210,7 +2313,8 @@ class CombatScene:
         self.current_floor += 1
         save_game(self.player, self.backpack, self.revive_system,
                   self.current_floor, self.monsters_killed,
-                  auto_destroy=getattr(self, 'auto_destroy', False))
+                  auto_destroy=getattr(self, 'auto_destroy', False),
+                  difficulty=self.difficulty)
         return "reward"
 
     # ================================================================
@@ -2367,12 +2471,23 @@ class CombatScene:
         from utils import resource_path
         for proj in self.projectiles:
             px, py = int(proj['x']), int(proj['y'])
+            proj_type = proj.get('proj_type')
             is_fire = proj.get('burn') is not None
             # 加载图标（缓存）
-            icon_key = 'fireball' if is_fire else 'arrow'
+            if proj_type == 'ice_fireball':
+                icon_key = 'ice_fireball'
+                fname = 'icon/Dragon_Fireball_JE2.png'
+            elif proj_type == 'ice_bomb':
+                icon_key = 'ice_bomb'
+                fname = 'icon/64px-Ice_Bomb.png'
+            elif is_fire:
+                icon_key = 'fireball'
+                fname = 'icon/EntitySprite_fire-charge.webp'
+            else:
+                icon_key = 'arrow'
+                fname = 'icon/EntitySprite_arrow.webp'
             if not hasattr(self, '_proj_icons'): self._proj_icons = {}
             if icon_key not in self._proj_icons:
-                fname = 'icon/EntitySprite_fire-charge.webp' if is_fire else 'icon/EntitySprite_arrow.webp'
                 try:
                     path = resource_path(fname)
                     if os.path.exists(path):
@@ -2385,14 +2500,14 @@ class CombatScene:
                     self._proj_icons[icon_key] = None
             icon = self._proj_icons.get(icon_key)
             if icon:
-                if is_fire:
-                    screen.blit(icon, (px - PROJECTILE_SIZE*3//2, py - PROJECTILE_SIZE*3//2))
-                else:
-                    # 箭矢：计算旋转角度（默认向右=0°）
+                # 火球/冰弹/冰焰弹图标直接绘制（不旋转）；箭矢按飞行方向旋转
+                if not is_fire and proj_type not in ('ice_fireball', 'ice_bomb'):
                     angle = math.degrees(math.atan2(proj['vy'], proj['vx']))
                     rotated = pygame.transform.rotate(icon, -angle)
                     rw, rh = rotated.get_size()
                     screen.blit(rotated, (px - rw//2, py - rh//2))
+                else:
+                    screen.blit(icon, (px - PROJECTILE_SIZE*3//2, py - PROJECTILE_SIZE*3//2))
             else:
                 color = (255, 60, 30) if is_fire else COLOR_PROJECTILE
                 pygame.draw.circle(screen, color, (px, py), PROJECTILE_SIZE)

@@ -12,12 +12,19 @@ CHEST = {"name": "宝箱", "hp": 50, "atk": 0, "range": 0, "cd": 999, "speed": 0
          "detect": 0, "color": "brown", "ranged": False, "immobile": True,
          "monster_type": "chest"}
 
-# 试炼刷怪笼：不具备移动能力，血量600+30×(Floor-1)，索敌范围1200，无攻击力
+# 试炼刷怪笼：不具备移动能力，血量600+30×(Floor-1)，索敌范围覆盖全房间(1200px≈25格)，无攻击力
+# V1.0.5.18: 索敌范围保持全房间触发（1200px，20×15房间对角线≈23.5格）；
+#            召唤冷却缩短至6秒；技能满血不触发机制对刷怪笼豁免
+#            （其召唤走独立 immobile 分支，不受普通怪物技能 hp<max_hp 门控）
 TRIAL_SPAWNER_BASE_HP = 600
 TRIAL_SPAWNER_HP_PER_FLOOR = 30
+TRIAL_SPAWNER_DETECT_RANGE = 1200       # 索敌范围（px），≈25格，覆盖全房间
+TRIAL_SPAWNER_SUMMON_INTERVAL = 6.0     # 召唤冷却（秒）
 TRIAL_SPAWNER = {"name": "试炼刷怪笼", "hp": TRIAL_SPAWNER_BASE_HP, "atk": 0, "range": 0,
-                 "cd": 10.0, "speed": 0, "detect": 1200, "color": "gray", "ranged": False,
-                 "immobile": True, "monster_type": "trial_spawner", "spawn_interval": 10.0}
+                 "cd": 10.0, "speed": 0, "detect": TRIAL_SPAWNER_DETECT_RANGE,
+                 "color": "gray", "ranged": False,
+                 "immobile": True, "monster_type": "trial_spawner",
+                 "spawn_interval": TRIAL_SPAWNER_SUMMON_INTERVAL}
 
 # 召唤概率表：20% 3精英 / 20% 2精英 / 30% 4普通 / 30% 3普通
 TRIAL_SPAWN_WEIGHTS = [
